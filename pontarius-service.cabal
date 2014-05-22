@@ -1,0 +1,33 @@
+name:                pontarius-service
+version:             0.0.0.0
+synopsis:            Pontarius Service
+description:         This is a work in progress of a service that will manage
+                     the configurations, credentials, and local storage, of
+                     Pontarius users. It will expose its API over the D-BUS
+                     inter-process communication protocol. This enables
+                     Pontarius to be integrated with other applications, such as
+                     FreeDesktop.org environments.
+homepage:            http://www.pontarius.org/
+license:             AGPL-3
+license-file:        LICENSE
+author:              Jon Kristensen, Philipp Balzarek
+maintainer:          info@jonkri.com
+copyright:           Jon Kristensen
+category:            Privacy
+build-type:          Simple
+extra-source-files:  README.md
+cabal-version:       >=1.10
+
+executable pontarius-service
+  main-is:             Main.hs
+  build-depends:         base >=4.6 && <4.7
+                       , bytestring
+                       , crypto-pubkey
+                       , persistent
+                       , persistent-template
+                       , pontarius-xmpp
+                       , text
+                       , time
+                       , uuid
+  hs-source-dirs:      source
+  default-language:    Haskell2010

@@ -1,0 +1,60 @@
+-- Store zero or more "private" identities for the user. These consist of
+-- private and public DSA keys.
+PrivIdent
+    privIdentId UUID
+    p Int64
+    g Int64
+    q Int64
+    x Int64
+    y Int64
+    revoked UTCTime Maybe
+    created UTCTime default=now()
+    imported UTCTime
+    UniquePrivIdentId privIdentId
+    UniquePrivIdentKey p g q x
+
+-- Store zero or more "public" identities for contacts. These are public DSA
+-- keys. We keep track of whether the fingerprints have been verified.
+PubIdent
+    pubIdentId UUID
+    p Int64
+    g Int64
+    q Int64
+    y Int64
+    verified UTCTime Maybe
+    revoked UTCTime Maybe
+    received UTCTime default=now()
+    imported UTCTime Maybe
+    UniquePubIdentId pubIdentId
+    UniquePubIdentKey p g q y
+
+-- Store details about received revocations of public identities.
+Revocation
+    sessionId SessionId Maybe
+    date UTCTime default=now()
+
+-- When we have signaled revocations of private identities.
+RevocationSignal
+    sessionId SessionId Maybe
+    privIdentId PrivIdentId
+
+-- Sessions - authenticated key exchanges. These may be incomplete. A `Nothing'
+-- value in the identity fields means that we have not revealed, or received,
+-- an identity in the session.
+Session
+    sessionId UUID
+    privIdentId PrivIdentId Maybe
+    pubIdentId PubIdentId Maybe
+    local Jid
+    remote Jid
+    date UTCTime default=now()
+
+-- Challenges. A `Nothing' question means a query for a shared password. A
+-- `Nothing' result means that a timeout occured.
+Challenge
+    sessionId SessionId
+    outgoing Bool
+    started UTCTime default=now()
+    completed UTCTime default=now()
+    question Text Maybe
+    result Bool Maybe

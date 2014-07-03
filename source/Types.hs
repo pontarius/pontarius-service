@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC  -fno-warn-incomplete-patterns #-}
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -12,18 +14,13 @@ module Types where
 import           Control.Applicative
 import           Control.Concurrent.STM
 import           Control.Lens
-import           Control.Monad
 import           Control.Monad.Reader
 import           DBus
-import           DBus.Property
 import           Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
 import           Data.Text (Text)
-import qualified Data.Text as Text
 import           Data.Time.Clock (UTCTime)
 import           Data.Time.Clock.POSIX as Time
 import           Data.Typeable
-import           Data.Word
 import           Database.Persist.Sqlite
 import qualified Network.Xmpp as Xmpp
 

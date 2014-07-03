@@ -21,13 +21,14 @@ extra-source-files:  schema
 
 executable pontarius-service
   main-is:             Main.hs
-  other-modules:       Client
+  other-modules:       Basic
+                     , Client
                      , DBusInterface
                      , Persist
                      , Persist.Stage
                      , Transactions
                      , Types
-                     , Basic
+                     , Xmpp
 
   build-depends: base >=4.6 && < 5
                , base64-bytestring >= 1.0.0.1

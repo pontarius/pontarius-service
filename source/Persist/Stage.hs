@@ -2,9 +2,12 @@
 
 module Persist.Stage where
 
-import Data.UUID
-import Database.Persist.Sql
-import Network.Xmpp
+import           Control.Lens
+import           Data.Char
+import qualified Data.List as List
+import           Data.UUID
+import           Database.Persist.Sql
+import           Network.Xmpp
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -30,3 +33,10 @@ instance PersistField Jid where
 
 instance PersistFieldSql Jid where
     sqlType _ = SqlString
+
+pLensRules :: [Char] -> LensRules
+pLensRules pr = lensRules & lensField
+                   .~ (fmap downcase . List.stripPrefix pr . (++ "L"))
+  where
+    downcase [] = []
+    downcase (x:xs) = toLower x : xs

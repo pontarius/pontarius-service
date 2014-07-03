@@ -3,37 +3,31 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DataKinds #-}
 
 module Gpg where
 
 import           Control.Applicative
-import           Control.Concurrent.STM
-import qualified Control.Exception as Ex
 import           Control.Monad
 import           Control.Monad.Reader
-import           Control.Monad.Trans
 import           DBus
 import qualified DBus.Types as DBus
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Base64 as B64
 import           Data.Maybe
 import           Data.Monoid
-import qualified Data.Set as Set
 import qualified Data.Text as Text
-import qualified Data.Text.Encoding as Text
 import           Data.Time.Clock
-import           Data.XML.Pickle hiding (Result)
-import           Data.XML.Types
 import qualified GpgMe as Gpg
-import qualified Network.Xmpp as Xmpp
+
 --import           Network.Xmpp.E2E
-import           System.Log.Logger
+
 
 import           Basic
 import           Persist
 import           Types
 
 
+mkKeyRSA :: String -> String
 mkKeyRSA name = unlines $
  [ "<GnupgKeyParms format=\"internal\">"
  , "Key-Type: RSA"
@@ -54,6 +48,7 @@ createGpgKey st name = runPSM st $ do
     addPrivateKey "gpg" keyFpr (Just now) Nothing
     return keyFpr
 
+createKeyMethod :: PSState -> Method
 createKeyMethod st =
     DBus.Method
     (DBus.repMethod $ createGpgKey st)
@@ -71,8 +66,7 @@ setSigningGpgKey st keyFpr = do
     matches <- filterM (liftM (== Just keyFpr) . Gpg.keyFingerprint) keys
     haveKey <- case matches of
         [] -> return False
-        (p:_) -> return True
-    now <- liftIO getCurrentTime
+        (_:_) -> return True
     runPSM st . when haveKey $ setSigningKey "gpg" keyFpr
     return haveKey
 
@@ -93,6 +87,15 @@ getSigningPgpKey st = do
                       , errorBody = []
                       }
 
+initalize :: PSState -> DBus.MethodHandlerT IO InitResponse
+initalize st = DBus.catchMethodError
+                 (getSigningPgpKey st >> return KeyOK)
+                 (\_ -> return SelectKey)
+
+
+signingKeyProp :: PSState
+               -> PropertyEmitsChangedSignal
+               -> Property ('TypeArray ('DBusSimpleType 'TypeByte))
 signingKeyProp st =
     mkProperty pontariusObjectPath pontariusInterface "SigningKey"
     (Just $ getSigningPgpKey st) (Just $ lift . setSigningGpgKey st)
@@ -107,6 +110,7 @@ getPrivateKeys = do
     catMaybes <$> mapM Gpg.keyFingerprint keys
 
 -- |  Get all available private keys
+getPrivateKeysMethod :: Method
 getPrivateKeysMethod  =
     DBus.Method
     (DBus.repMethod $ (getPrivateKeys :: IO [KeyID] ))
@@ -114,7 +118,6 @@ getPrivateKeysMethod  =
     Result
     ("keys" -- ^ List of keyIDs
      :> ResultDone)
-
 
 -- importKey st peer key = do
 --     ctx <- Gpg.ctxNew Nothing

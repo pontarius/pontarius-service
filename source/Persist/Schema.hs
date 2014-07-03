@@ -5,12 +5,11 @@
 
 module Persist.Schema where
 
+import           Control.Lens
 import           Data.Text (Text)
-import qualified Data.Text as Text
 import           Data.Time.Clock
 import           Database.Persist
 import           Database.Persist.Quasi
-import           Database.Persist.Sqlite
 import           Database.Persist.TH
 import           Network.Xmpp (Jid)
 
@@ -19,3 +18,5 @@ import           Types
 
 share [ mkPersist sqlSettings, mkMigrate "migrateAll"]
     $(persistFileWith lowerCaseSettings "schema")
+
+makeLensesWith (pLensRules "hostCredentials") ''HostCredentialsGeneric

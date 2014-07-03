@@ -18,6 +18,7 @@ import           DBus.Types
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import           Data.Int
+import           Data.Monoid
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Time.Clock
@@ -29,66 +30,13 @@ import           Network.Xmpp (Jid)
 import qualified Network.Xmpp as Xmpp
 
 import           Basic
+import           DBusInterface
+import           Gpg
 import           Persist
 import           Types
 
 data State = State { connection :: Xmpp.Session
                    }
-connectXmpp :: PSM (MethodHandlerT IO) Xmpp.Session
-connectXmpp = do
-    mbCredentials <- getCredentials
-    case mbCredentials of
-        Just cred -> do
-            let hostname = hostCredentialsHostname cred
-                username = hostCredentialsUsername cred
-                password = hostCredentialsPassword cred
-            mbSess <- liftIO $ Xmpp.session (Text.unpack hostname)
-                          (Xmpp.simpleAuth username password)
-                          def
-            case mbSess of
-                Left e ->
-                    lift . methodError $
-                        MsgError { errorName =
-                                        "org.pontarius.Error.ConnectionFailure"
-                                 , errorText = Just $ Text.pack (show e)
-                                 , errorBody = []
-                                 }
-                Right r -> return r
-        Nothing -> lift . methodError $
-                       MsgError { errorName =
-                                       "org.pontarius.Error.MissingCredentials"
-                                , errorText = Just "Connection credentials are unset."
-                                , errorBody = []
-                                }
-
-connect = do
-    sessRef <- xmppRef
-    mbRef <- liftIO . atomically . tryReadTMVar $ sessRef
-    case mbRef of
-        Just sess -> do
-            liftIO . atomically $ putTMVar sessRef sess
-            return False
-        Nothing -> do
-            sess <- connectXmpp
-            liftIO . atomically $ putTMVar sessRef sess
-            return True
-
-disconnect = do
-    sessRef <- xmppRef
-    ref <- liftIO . atomically . tryTakeTMVar $ sessRef
-    case ref of
-        Just sess -> do
-            liftIO $ Xmpp.endSession sess
-            return True
-        Nothing -> return False
-
-reconnect :: PSM (MethodHandlerT IO) ()
-reconnect = do
-    disconnect
-    connect
-    return ()
-
-
 
 main = withSqlitePool "test.db3" 3 $ \pool -> do
     runResourceT $ runStderrLoggingT $ flip runSqlPool pool $
@@ -112,8 +60,11 @@ main = withSqlitePool "test.db3" 3 $ \pool -> do
         setConStatus Disconnected = runPSM psState disconnect
         conStatusProp = mkProperty pontariusObjectPath pontariusInterface
                                    "ConnectionStatus"
-                                   (Just (atomically getConStatus))
-                                   (Just setConStatus)
-    con <- DBus.makeServer System undefined
+                                   (Just (lift $ atomically getConStatus))
+                                   Nothing
+                                   PECSTrue
+        ro = rootObject psState <> property conStatusProp
+    con <- DBus.makeServer DBus.Session ro
+    requestName "pontarius.service" def con
     manageStmProperty conStatusProp getConStatus con
     waitFor con

@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Persist
   ( module Persist
   , module Persist.Schema
@@ -8,19 +9,14 @@ import           Control.Concurrent.STM
 import           Control.Lens
 import           Control.Monad.IO.Class
 import           Control.Monad.Logger
-import           Control.Monad.Reader
 import           Control.Monad.Trans.Resource
-import           Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import           Data.Maybe
 import           Data.Text (Text)
-import qualified Data.Text as Text
 import           Data.Time.Clock
 import           Database.Persist
 import           Database.Persist.Sqlite
-import           Network.Xmpp (Jid)
 import qualified Network.Xmpp as Xmpp
 
-import           Persist.Stage
 import           Persist.Schema
 import           Types
 
@@ -32,8 +28,40 @@ setCredentials :: MonadIO m => Text -> Xmpp.Username -> Xmpp.Password -> PSM m (
 setCredentials hostName username password = runDB $ do
     deleteWhere ([] :: [Filter HostCredentials])
     now <- liftIO getCurrentTime
-    insert $ HostCredentials hostName username password now
+    _ <- insert $ HostCredentials hostName username password now
     return ()
+
+getHostname :: (MonadIO m, Functor m) => PSM m Text
+getHostname = fromMaybe "" . fmap (view hostnameL) <$> getCredentials
+
+getUsername :: (MonadIO m, Functor m) => PSM m Text
+getUsername = fromMaybe "" . fmap (view hostnameL) <$> getCredentials
+
+modifyCredentials :: MonadIO m =>
+                     ( HostCredentialsGeneric SqlBackend
+                      -> HostCredentialsGeneric backend0)
+                  -> PSM m ()
+modifyCredentials f = do
+    mbCred <- getCredentials
+    cred <- case mbCred of
+        Nothing -> do
+            now <- liftIO getCurrentTime
+            return $ HostCredentials "" "" "" now
+        Just c -> return c
+    let cred' = f cred
+    setCredentials (view hostnameL cred') (view usernameL cred')
+                   (view passwordL cred')
+    return ()
+
+setHostname :: MonadIO m => Text -> PSM m ()
+setHostname hn = modifyCredentials (hostnameL .~ hn)
+
+setUsername :: MonadIO m => Text -> PSM m ()
+setUsername un = modifyCredentials (usernameL .~ un)
+
+setPassword :: MonadIO m => Text -> PSM m ()
+setPassword pw = modifyCredentials (passwordL .~ pw)
+
 
 addPrivateKey :: MonadIO m =>
                  Text
@@ -44,10 +72,11 @@ addPrivateKey :: MonadIO m =>
 addPrivateKey keyBackend keyID keyCreated keyImported = do
     sk <- getSigningKey
     let isDefault = maybe Active (const Inactive) sk
-    runDB . insert $ PrivIdent keyBackend keyID Nothing keyCreated keyImported
+    _ <- runDB . insert $ PrivIdent keyBackend keyID Nothing keyCreated keyImported
                      isDefault
     return ()
 
+setSigningKey :: MonadIO m => Text -> KeyID -> PSM m ()
 setSigningKey backend keyID = runDB $ do
     updateWhere [ PrivIdentIsDefault ==. Active] [PrivIdentIsDefault =. Inactive]
     updateWhere [ PrivIdentKeyBackend ==. backend, PrivIdentKeyID ==. keyID]

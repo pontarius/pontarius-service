@@ -17,7 +17,7 @@ PubIdent
     keyID KeyID
     verified UTCTime Maybe
     revoked UTCTime Maybe
-    received UTCTime default=now()
+    received UTCTime
     imported UTCTime Maybe
     UniquePubIdentKey keyID
 
@@ -25,7 +25,7 @@ PubIdent
 Revocation
     sessionID SessionID Maybe
     keyID Text
-    date UTCTime default=now()
+    date UTCTime
 
 -- When we have signaled revocations of private identities.
 RevocationSignal
@@ -41,15 +41,15 @@ Session
     pubIDentID KeyID Maybe
     local Jid
     remote Jid
-    date UTCTime default=now()
+    date UTCTime
 
 -- Challenges. A `Nothing' question means a query for a shared password. A
 -- `Nothing' result means that a timeout occured.
 Challenge
     sessionID SessionID
     outgoing Bool
-    started UTCTime default=now()
-    completed UTCTime default=now()
+    started UTCTime
+    completed UTCTime
     question Text Maybe
     result Bool Maybe
 

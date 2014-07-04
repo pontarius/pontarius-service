@@ -56,8 +56,6 @@ main = withSqlitePool "test.db3" 3 $ \pool -> do
                 Xmpp.Secured -> Connected
                 Xmpp.Closed -> Disconnected
                 Xmpp.Finished -> Disconnected
-        setConStatus Connected = runPSM psState connect
-        setConStatus Disconnected = runPSM psState disconnect
         conStatusProp = mkProperty pontariusObjectPath pontariusInterface
                                    "ConnectionStatus"
                                    (Just (lift $ atomically getConStatus))

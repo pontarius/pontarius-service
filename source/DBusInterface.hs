@@ -267,10 +267,6 @@ availableEntitiesProperty = pontariusProperty "AvailableEntities"
 unavailanbleEntitiesProperty :: Property (RepType [Ent])
 unavailanbleEntitiesProperty = pontariusProperty "UnvailableEntities"
 
-keyProperty :: Property (RepType KeyID)
-keyProperty = pontariusProperty "SigningKey"
-
-
 passwordProperty :: PSState -> Property (RepType Text)
 passwordProperty st = mkProperty pontariusObjectPath
                                  pontariusInterface
@@ -335,7 +331,7 @@ xmppInterface st = Interface
                 , SomeProperty $ hostnameProperty st
                 , SomeProperty availableEntitiesProperty
                 , SomeProperty unavailanbleEntitiesProperty
-                , SomeProperty keyProperty
+                , SomeProperty $ signingKeyProp st
                 , SomeProperty connectionStatusProperty
                 ]
 

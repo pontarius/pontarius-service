@@ -57,6 +57,24 @@ createKeyMethod st =
     ("key_id" -- key_id of the newly created key
      :> ResultDone)
 
+revokeKey keyID reason text = do
+    ctx <- liftIO $ Gpg.ctxNew Nothing
+    keys <- liftIO $ Gpg.findKeyBy ctx True Gpg.keyFingerprint keyID
+    case keys of
+        [key] -> liftIO $ Gpg.revoke ctx key reason text >> return ()
+        [] -> DBus.methodError $
+                   MsgError{ errorName = "org.pontarius.Error.Revoke"
+                           , errorText = Just "Key not found"
+                           , errorBody = []
+                           }
+        [] -> DBus.methodError $
+                   MsgError{ errorName = "org.pontarius.Error.Revoke"
+                           , errorText = Just "Key not unique"
+                           , errorBody = []
+                           }
+    return ()
+
+
 setSigningGpgKey :: PSState
                  -> KeyID
                  -> IO Bool
@@ -94,11 +112,11 @@ initalize st = DBus.catchMethodError
 
 
 signingKeyProp :: PSState
-               -> PropertyEmitsChangedSignal
                -> Property ('TypeArray ('DBusSimpleType 'TypeByte))
 signingKeyProp st =
     mkProperty pontariusObjectPath pontariusInterface "SigningKey"
     (Just $ getSigningPgpKey st) (Just $ lift . setSigningGpgKey st)
+    PECSTrue
 
 
 --setSigningKey st keyFpr

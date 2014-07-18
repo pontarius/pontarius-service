@@ -22,7 +22,6 @@ extra-source-files:  schema
 executable pontarius-service
   main-is:             Main.hs
   other-modules:       Basic
-                     , Client
                      , DBusInterface
                      , Persist
                      , Persist.Stage
@@ -54,7 +53,7 @@ executable pontarius-service
                , uuid
                , xml-picklers >= 0.3.5
                , xml-types >= 0.3.4
-               , hs-gpgme
+               , pontarius-gpg
   hs-source-dirs:      source
   default-language:    Haskell2010
   default-extensions: OverloadedStrings

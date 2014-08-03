@@ -35,7 +35,7 @@ getHostname :: (MonadIO m, Functor m) => PSM m Text
 getHostname = fromMaybe "" . fmap (view hostnameL) <$> getCredentials
 
 getUsername :: (MonadIO m, Functor m) => PSM m Text
-getUsername = fromMaybe "" . fmap (view hostnameL) <$> getCredentials
+getUsername = fromMaybe "" . fmap (view usernameL) <$> getCredentials
 
 modifyCredentials :: MonadIO m =>
                      ( HostCredentialsGeneric SqlBackend

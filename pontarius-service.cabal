@@ -64,3 +64,30 @@ executable pontarius-service
                     , QuasiQuotes
                     , DataKinds
                     , TypeFamilies
+  ghc-options: -Wall -fno-warn-orphans -fno-warn-name-shadowing
+
+executable client
+  main-is:             Main.hs
+  other-modules:       DBusInterface
+  -- other-extensions:
+  build-depends:       base >=4.6 && < 5
+                     , pontarius-xmpp
+                     , template-haskell
+--                     , pontarius-xmpp-e2e
+                     , d-bus
+                     , text
+                     , configurator
+                     , mtl
+                     , directory
+                     , filepath
+                     , hslogger
+                     , network
+                     , bytestring
+                     , haskeline
+                     , transformers
+                     , gtk
+                     , containers
+                     , prototyper
+                     , vty-ui
+  hs-source-dirs:      client
+  default-language:    Haskell2010

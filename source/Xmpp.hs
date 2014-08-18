@@ -1,6 +1,7 @@
 module Xmpp where
 
 import           Control.Concurrent.STM
+import           Control.Lens
 import           Control.Monad.Trans
 import           DBus
 import           DBus.Types
@@ -21,7 +22,7 @@ connectXmpp = do
                 password = hostCredentialsPassword cred
             mbSess <- liftIO $ Xmpp.session (Text.unpack hostname)
                           (Xmpp.simpleAuth username password)
-                          def
+                          (def & Xmpp.tlsUseNameIndicationL .~ False)
             case mbSess of
                 Left e ->
                     lift . methodError $

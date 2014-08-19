@@ -6,10 +6,12 @@ module Persist
 
 import           Control.Applicative
 import           Control.Concurrent.STM
+import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.IO.Class
 import           Control.Monad.Logger
 import           Control.Monad.Trans.Resource
+import           DBus
 import           Data.Maybe
 import           Data.Text (Text)
 import           Data.Time.Clock
@@ -21,8 +23,18 @@ import           Persist.Schema
 import           Types
 
 getCredentials :: MonadIO m => PSM m (Maybe HostCredentials)
-getCredentials = runDB $
-    fmap entityVal <$> selectFirst [] [Desc HostCredentialsChanged]
+getCredentials = runDB $ fmap entityVal
+                <$> selectFirst [] [Desc HostCredentialsChanged]
+
+
+getCredentials' :: MonadIO m => PSM m (Text, Text)
+getCredentials' = do
+    mbCred <- getCredentials
+    case mbCred of
+     Nothing -> liftIO . Ex.throwIO $ MsgError "org.pontarius.Error.GetCredentials"
+                                               (Just $ "Credentials not set")
+                                               []
+     Just cred -> return (cred ^. hostnameL, cred ^. usernameL)
 
 setCredentials :: MonadIO m => Text -> Xmpp.Username -> Xmpp.Password -> PSM m ()
 setCredentials hostName username password = runDB $ do
@@ -31,45 +43,13 @@ setCredentials hostName username password = runDB $ do
     _ <- insert $ HostCredentials hostName username password now
     return ()
 
-getHostname :: (MonadIO m, Functor m) => PSM m Text
-getHostname = fromMaybe "" . fmap (view hostnameL) <$> getCredentials
-
-getUsername :: (MonadIO m, Functor m) => PSM m Text
-getUsername = fromMaybe "" . fmap (view usernameL) <$> getCredentials
-
-modifyCredentials :: MonadIO m =>
-                     ( HostCredentialsGeneric SqlBackend
-                      -> HostCredentialsGeneric backend0)
-                  -> PSM m ()
-modifyCredentials f = do
-    mbCred <- getCredentials
-    cred <- case mbCred of
-        Nothing -> do
-            now <- liftIO getCurrentTime
-            return $ HostCredentials "" "" "" now
-        Just c -> return c
-    let cred' = f cred
-    setCredentials (view hostnameL cred') (view usernameL cred')
-                   (view passwordL cred')
-    return ()
-
-setHostname :: MonadIO m => Text -> PSM m ()
-setHostname hn = modifyCredentials (hostnameL .~ hn)
-
-setUsername :: MonadIO m => Text -> PSM m ()
-setUsername un = modifyCredentials (usernameL .~ un)
-
-setPassword :: MonadIO m => Text -> PSM m ()
-setPassword pw = modifyCredentials (passwordL .~ pw)
-
-
-addPrivateKey :: MonadIO m =>
+addIdentity :: MonadIO m =>
                  Text
               -> KeyID
               -> Maybe UTCTime
               -> Maybe UTCTime
               -> PSM m ()
-addPrivateKey keyBackend keyID keyCreated keyImported = do
+addIdentity keyBackend keyID keyCreated keyImported = do
     sk <- getSigningKey
     let isDefault = maybe Active (const Inactive) sk
     _ <- runDB . insert $ PrivIdent keyBackend keyID Nothing keyCreated keyImported

@@ -37,7 +37,7 @@ instance IsStub (IO a) where
     stub = Ex.throwIO Stub
 
 instance IsStub (MethodHandlerT IO a) where
-    stub = methodError $ MsgError "pontarius.service.Error.Stub" Nothing []
+    stub = methodError $ MsgError "org.pontarius.Error.Stub" Nothing []
 
 instance IsStub b => IsStub (a -> b) where
     stub = \_ -> stub
@@ -51,6 +51,8 @@ pontariusProperty name =
              , propertySet = Just stub
              , propertyEmitsChangedSignal = PECSTrue
              }
+execPSM :: PSState -> PSM IO a -> IO a
+execPSM s m = runPSM s m
 
 ----------------------------------------------------
 -- Methods
@@ -59,7 +61,19 @@ pontariusProperty name =
 instance IsString (ResultDescription ('Arg 'Null)) where
     fromString t = (fromString t :> ResultDone)
 
+setCredentialsMethod :: PSState -> Method
+setCredentialsMethod st =
+    Method (DBus.repMethod $ \h u p -> execPSM st $ setCredentials h u p)
+           "set_credentials"
+           ("host" :-> "username" :-> "password" :-> Result)
+           ResultDone
 
+getCredentialsMethod :: PSState -> Method
+getCredentialsMethod st =
+    Method (DBus.repMethod $ execPSM st getCredentials')
+           "get_credentials"
+           Result
+           ("host" :> "username" :> ResultDone)
 
 securityHistoryByJidMethod :: Method
 securityHistoryByJidMethod =
@@ -267,35 +281,6 @@ availableEntitiesProperty = pontariusProperty "AvailableEntities"
 unavailanbleEntitiesProperty :: Property (RepType [Ent])
 unavailanbleEntitiesProperty = pontariusProperty "UnvailableEntities"
 
-passwordProperty :: PSState -> Property (RepType Text)
-passwordProperty st = mkProperty pontariusObjectPath
-                                 pontariusInterface
-                                 "Password"
-                                 Nothing
-                                 (Just $ \pw -> runPSM st (setPassword pw)
-                                                >> return False)
-                                 PECSFalse
-
-usernameProperty :: PSState -> Property (RepType Text)
-usernameProperty st = mkProperty pontariusObjectPath
-                                 pontariusInterface
-                                 "Username"
-                                 (Just $ runPSM st getUsername)
-                                 (Just $ \pw -> runPSM st (setUsername pw)
-                                                >> return True)
-                                 PECSTrue
-
-hostnameProperty :: PSState -> Property (RepType Text)
-hostnameProperty st = mkProperty pontariusObjectPath
-                                 pontariusInterface
-                                 "Hostname"
-                                 (Just $ runPSM st getHostname)
-                                 (Just $ \pw -> runPSM st (setHostname pw)
-                                                >> return True)
-                                 PECSTrue
-
-
-
 ----------------------------------------------------
 -- Objects
 ----------------------------------------------------
@@ -319,6 +304,9 @@ xmppInterface st = Interface
                 , connectMethod st
                 , disconnectMethod st
                 , reconnectMethod st
+                , getIdentitiesMethod
+                , setCredentialsMethod st
+                , getCredentialsMethod st
                 ] []
                 [ receivedChallengeSignal
                 , challengeResultSignal
@@ -326,10 +314,7 @@ xmppInterface st = Interface
                 , peerStatusChangeSignal
                 , peerTrustStatusChangeSignal
                 ]
-                [ SomeProperty $ passwordProperty st
-                , SomeProperty $ usernameProperty st
-                , SomeProperty $ hostnameProperty st
-                , SomeProperty availableEntitiesProperty
+                [ SomeProperty availableEntitiesProperty
                 , SomeProperty unavailanbleEntitiesProperty
                 , SomeProperty $ signingKeyProp st
                 , SomeProperty connectionStatusProperty

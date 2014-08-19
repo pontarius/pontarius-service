@@ -45,7 +45,7 @@ createGpgKey st name = runPSM st $ do
     ctx <- liftIO $ Gpg.ctxNew Nothing
     Just keyFpr <- Gpg.genKeyFingerprint <$> liftIO (Gpg.genKey ctx (mkKeyRSA $ Text.unpack name))
     now <- liftIO getCurrentTime
-    addPrivateKey "gpg" keyFpr (Just now) Nothing
+    addIdentity "gpg" keyFpr (Just now) Nothing
     return keyFpr
 
 createKeyMethod :: PSState -> Method
@@ -67,7 +67,7 @@ revokeKey keyID reason text = do
                            , errorText = Just "Key not found"
                            , errorBody = []
                            }
-        [] -> DBus.methodError $
+        _ -> DBus.methodError $
                    MsgError{ errorName = "org.pontarius.Error.Revoke"
                            , errorText = Just "Key not unique"
                            , errorBody = []
@@ -121,20 +121,20 @@ signingKeyProp st =
 
 --setSigningKey st keyFpr
 
-getPrivateKeys :: IO [KeyID]
-getPrivateKeys = do
+getIdentities :: IO [KeyID]
+getIdentities = do
     ctx <- Gpg.ctxNew Nothing
     keys <- Gpg.getKeys ctx True
     catMaybes <$> mapM Gpg.keyFingerprint keys
 
 -- |  Get all available private keys
-getPrivateKeysMethod :: Method
-getPrivateKeysMethod  =
+getIdentitiesMethod :: Method
+getIdentitiesMethod  =
     DBus.Method
-    (DBus.repMethod $ (getPrivateKeys :: IO [KeyID] ))
-    "get_private_keys"
+    (DBus.repMethod $ (getIdentities :: IO [KeyID] ))
+    "get_identities"
     Result
-    ("keys" -- ^ List of keyIDs
+    ("identities" -- ^ List of keyIDs
      :> ResultDone)
 
 -- importKey st peer key = do

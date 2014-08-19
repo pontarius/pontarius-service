@@ -63,6 +63,6 @@ main = withSqlitePool "test.db3" 3 $ \pool -> do
                                    PECSTrue
         ro = rootObject psState <> property conStatusProp
     con <- DBus.makeServer DBus.Session ro
-    requestName "pontarius.service" def con
+    requestName "org.pontarius" def con
     manageStmProperty conStatusProp getConStatus con
     waitFor con

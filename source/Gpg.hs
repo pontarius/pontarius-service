@@ -48,16 +48,16 @@ createGpgKey st name = runPSM st $ do
     addIdentity "gpg" keyFpr (Just now) Nothing
     return keyFpr
 
-createKeyMethod :: PSState -> Method
-createKeyMethod st =
+createIdentity :: PSState -> Method
+createIdentity st =
     DBus.Method
     (DBus.repMethod $ createGpgKey st)
-    "createKey"
+    "createIdentity"
     ("user_name" :-> Result)
     ("key_id" -- key_id of the newly created key
      :> ResultDone)
 
-revokeKey keyID reason text = do
+revokeIdentity keyID reason text = do
     ctx <- liftIO $ Gpg.ctxNew Nothing
     keys <- liftIO $ Gpg.findKeyBy ctx True Gpg.keyFingerprint keyID
     case keys of
@@ -73,7 +73,6 @@ revokeKey keyID reason text = do
                            , errorBody = []
                            }
     return ()
-
 
 setSigningGpgKey :: PSState
                  -> KeyID
@@ -104,12 +103,6 @@ getSigningPgpKey st = do
                       , errorText = Just $ "Unknown key backend " <> backend
                       , errorBody = []
                       }
-
-initalize :: PSState -> DBus.MethodHandlerT IO InitResponse
-initalize st = DBus.catchMethodError
-                 (getSigningPgpKey st >> return KeyOK)
-                 (\_ -> return SelectKey)
-
 
 signingKeyProp :: PSState
                -> Property ('TypeArray ('DBusSimpleType 'TypeByte))

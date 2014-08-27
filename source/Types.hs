@@ -12,6 +12,7 @@
 module Types where
 
 import           Control.Applicative
+import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Lens
 import           Control.Monad.Reader
@@ -23,6 +24,18 @@ import           Data.Time.Clock.POSIX as Time
 import           Data.Typeable
 import           Database.Persist.Sqlite
 import qualified Network.Xmpp as Xmpp
+
+data PontariusState = CredentialsUnset
+                    | IdentityUnset
+                    | Disabled
+                    | Authenticating
+                    | Authenticated
+                    | AuthenticationDenied
+                      deriving (Show, Eq)
+
+data AccountState = AccountEnabled
+                  | AccountDisabled
+                    deriving (Show, Eq)
 
 
 instance Representable UTCTime where
@@ -37,13 +50,28 @@ instance DBus.Representable Xmpp.Jid where
 
 data PSProperties = PSProperties{ _pspConnectionStatus :: Property (RepType Bool)}
 
+-- | When requesting a new connection we fork a new thread that creates the
+-- connection and sets it's own threadID so it can be aborted when required
+data XmppState = XmppConnecting ThreadId
+               | XmppConnected  Xmpp.Session
+               | XmppNoConnection
+
+instance Show XmppState where
+    show (XmppConnecting tid) = "<Connecting, thread = " ++ show tid ++ " >"
+    show (XmppConnected _) = "Connected"
+    show XmppNoConnection = "Disconnected"
+
 data PSState = PSState { _psDB :: ConnectionPool
-                       , _psXmppCon :: TMVar Xmpp.Session
+                       , _psXmppCon :: TVar XmppState
                        , _psProps :: TMVar PSProperties
+                       , _psState :: TVar PontariusState
+                       , _psAccountState :: TVar AccountState
                        }
 
 newtype PSM m a = PSM {unPSM :: ReaderT PSState m a}
                 deriving (Monad, Applicative, Functor, MonadIO, MonadTrans)
+
+deriving instance Monad m => MonadReader PSState (PSM m)
 
 runPSM :: PSState -> PSM m a -> m a
 runPSM st (PSM m) = runReaderT m st
@@ -90,9 +118,14 @@ data RevocationSignalEvent =
                           , revocationSignalEventTime :: UTCTime
                           }
 
-
 makeLenses ''PSProperties
 makeLenses ''PSState
+
+makePrisms ''PontariusState
+makeRepresentable ''PontariusState
+
+makePrisms ''AccountState
+makeRepresentable ''AccountState
 
 makeRepresentable ''RevocationSignalEvent
 makeRepresentable ''ConnectionStatus

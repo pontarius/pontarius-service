@@ -10,7 +10,10 @@
 module DBusInterface
    (rootObject) where
 
+import           Control.Concurrent.STM
 import qualified Control.Exception as Ex
+import           Control.Lens
+import           Control.Monad.Trans
 import           DBus as DBus
 import           DBus.Types
 import           Data.Proxy
@@ -51,9 +54,6 @@ pontariusProperty name =
              , propertySet = Just stub
              , propertyEmitsChangedSignal = PECSTrue
              }
-execPSM :: PSState -> PSM IO a -> IO a
-execPSM s m = runPSM s m
-
 ----------------------------------------------------
 -- Methods
 ----------------------------------------------------
@@ -63,14 +63,14 @@ instance IsString (ResultDescription ('Arg 'Null)) where
 
 setCredentialsMethod :: PSState -> Method
 setCredentialsMethod st =
-    Method (DBus.repMethod $ \h u p -> execPSM st $ setCredentials h u p)
+    Method (DBus.repMethod $ \h u p -> setCredentialsM st h u p)
            "set_credentials"
            ("host" :-> "username" :-> "password" :-> Result)
            ResultDone
 
 getCredentialsMethod :: PSState -> Method
 getCredentialsMethod st =
-    Method (DBus.repMethod $ execPSM st getCredentials')
+    Method (DBus.repMethod $ getCredentialsM st)
            "get_credentials"
            Result
            ("host" :> "username" :> ResultDone)
@@ -108,33 +108,15 @@ securityHistoryByKeyIdMethod =
      :> ResultDone
     )
 
+initialize :: PSState -> IO PontariusState
+initialize st = runPSM st $ liftIO . atomically . readTVar =<< view psState
+
 initializeMethod :: PSState -> Method
 initializeMethod st =
     DBus.Method
-    (DBus.repMethod $ initalize st)
+    (DBus.repMethod $ initialize st)
     "initialize" Result
     ("result" :> ResultDone)
-
-connectMethod :: PSState -> Method
-connectMethod st =
-    DBus.Method
-    (DBus.repMethod $ runPSM st connect)
-    "connect" Result
-    (ResultDone)
-
-disconnectMethod :: PSState -> Method
-disconnectMethod st =
-    DBus.Method
-    (DBus.repMethod $ runPSM st disconnect)
-    "disconnect" Result
-    (ResultDone)
-
-reconnectMethod :: PSState -> Method
-reconnectMethod st =
-    DBus.Method
-    (DBus.repMethod $ runPSM st reconnect)
-    "reconnect" Result
-    (ResultDone)
 
 importKeyMethod :: Method
 importKeyMethod =
@@ -288,7 +270,7 @@ unavailanbleEntitiesProperty = pontariusProperty "UnvailableEntities"
 xmppInterface :: PSState -> Interface
 xmppInterface st = Interface
                 [ importKeyMethod
-                , createKeyMethod st
+                , createIdentity st
                 , initializeMethod st
                 , markKeyVerifiedMethod
                 , securityHistoryByJidMethod
@@ -301,9 +283,6 @@ xmppInterface st = Interface
                 , addPeerMethod
                 , removePeerMethod
                 , registerAccountMethod
-                , connectMethod st
-                , disconnectMethod st
-                , reconnectMethod st
                 , getIdentitiesMethod
                 , setCredentialsMethod st
                 , getCredentialsMethod st

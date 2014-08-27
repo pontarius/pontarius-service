@@ -12,6 +12,7 @@ import           Control.Monad.IO.Class
 import           Control.Monad.Logger
 import           Control.Monad.Trans.Resource
 import           DBus
+import           DBus.Types
 import           Data.Maybe
 import           Data.Text (Text)
 import           Data.Time.Clock
@@ -27,13 +28,14 @@ getCredentials = runDB $ fmap entityVal
                 <$> selectFirst [] [Desc HostCredentialsChanged]
 
 
-getCredentials' :: MonadIO m => PSM m (Text, Text)
-getCredentials' = do
-    mbCred <- getCredentials
+getCredentialsM :: PSState -> MethodHandlerT IO (Text, Text)
+getCredentialsM st = do
+    mbCred <- runPSM st getCredentials
     case mbCred of
-     Nothing -> liftIO . Ex.throwIO $ MsgError "org.pontarius.Error.GetCredentials"
-                                               (Just $ "Credentials not set")
-                                               []
+     Nothing -> methodError
+                    $ MsgError "org.pontarius.Error.GetCredentials"
+                               (Just $ "Credentials not set")
+                               []
      Just cred -> return (cred ^. hostnameL, cred ^. usernameL)
 
 setCredentials :: MonadIO m => Text -> Xmpp.Username -> Xmpp.Password -> PSM m ()
@@ -42,6 +44,10 @@ setCredentials hostName username password = runDB $ do
     now <- liftIO getCurrentTime
     _ <- insert $ HostCredentials hostName username password now
     return ()
+
+
+setCredentialsM :: PSState -> Text -> Xmpp.Username -> Xmpp.Password -> IO ()
+setCredentialsM st h u p= runPSM st $ setCredentials h u p
 
 addIdentity :: MonadIO m =>
                  Text
@@ -71,6 +77,3 @@ runDB :: MonadIO m => SqlPersistT (LoggingT (ResourceT IO)) b -> PSM m b
 runDB f = do
     dbPool <- PSM $ view psDB
     PSM . liftIO . runResourceT . runStderrLoggingT . flip runSqlPool dbPool $ f
-
-xmppRef :: Monad m => PSM m (TMVar Xmpp.Session)
-xmppRef = PSM $ view psXmppCon

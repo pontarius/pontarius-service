@@ -66,7 +66,6 @@ main = withSqlitePool "test.db3" 3 $ \pool -> do
         ro = rootObject psState <> property statusProp
     initGPG psState
     runPSM psState updateState
-    Text.writeFile "dbus-interface.xml" $ introspect "/" True ro
     con <- makeServer DBus.Session ro
     requestName "org.pontarius" def con
     manageStmProperty statusProp getStatus con

@@ -26,11 +26,11 @@ $(do
         downcase [] = []
         downcase (x:xs) = toLower x : xs
     mfs <- forM methods
-             $ methodFunction (Text.unpack . methodMember)
-             (Just "pontarius.service")
+             $ methodFunction (downcase . Text.unpack . methodMember)
+             (Just "org.pontarius")
     props <- forM propDs $ propertyFromDescription
              (downcase . (++ "P") . Text.unpack . pdName)
-             (Just "pontarius.service")
+             (Just "org.pontarius")
     return . concat $ mfs ++ props
 
  )

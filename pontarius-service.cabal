@@ -25,7 +25,6 @@ executable pontarius-service
                      , DBusInterface
                      , Persist
                      , Persist.Stage
-                     , Transactions
                      , Types
                      , Xmpp
 

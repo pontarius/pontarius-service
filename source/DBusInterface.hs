@@ -268,9 +268,6 @@ peerTrustStatusChangeSignal = SignalI { signalName = "peerTrustStatusChanged"
                                       }
 
 
-connectionStatusProperty :: Property (RepType Text)
-connectionStatusProperty = pontariusProperty "ConnectionStatus"
-
 availableEntitiesProperty :: Property (RepType [Ent])
 availableEntitiesProperty = pontariusProperty "AvailableEntities"
 
@@ -314,7 +311,6 @@ xmppInterface st = Interface
                 [ SomeProperty availableEntitiesProperty
                 , SomeProperty unavailanbleEntitiesProperty
                 , SomeProperty $ signingKeyProp st
-                , SomeProperty connectionStatusProperty
                 ]
 
 

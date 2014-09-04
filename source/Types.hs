@@ -8,6 +8,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Types where
 
@@ -17,6 +18,8 @@ import           Control.Concurrent.STM
 import           Control.Lens
 import           Control.Monad.Reader
 import           DBus
+import           DBus.Types
+import           DBus.Signal
 import           Data.ByteString (ByteString)
 import           Data.Text (Text)
 import           Data.Time.Clock (UTCTime)
@@ -27,6 +30,7 @@ import qualified Network.Xmpp as Xmpp
 
 data PontariusState = CredentialsUnset
                     | IdentityUnset
+                    | CreatingIdentity
                     | Disabled
                     | Authenticating
                     | Authenticated
@@ -134,3 +138,14 @@ makeRepresentable ''Ent
 makeRepresentable ''AkeEvent
 makeRepresentable ''ChallengeEvent
 makeRepresentable ''RevocationEvent
+
+class Signaling m where
+    signals :: Signal -> m ()
+
+instance Signaling (MethodHandlerT IO) where
+    signals = signal
+
+instance (MonadTrans t, MonadReader DBusConnection (t IO)) => Signaling (t IO) where
+    signals s = do
+        dbc <- ask
+        lift $ emitSignal s dbc

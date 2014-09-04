@@ -92,6 +92,12 @@ setState newState = do
     st <- view psState
     liftIO . atomically $ writeTVar st newState
 
+getState :: (MonadReader PSState m, MonadIO m) => m PontariusState
+getState = do
+    st <- view psState
+    liftIO . atomically $ readTVar st
+
+
 -- | Update the current state when an identifiable condition is found.
 updateState :: MonadIO m => PSM m ()
 updateState = do

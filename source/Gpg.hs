@@ -38,19 +38,24 @@ mkKeyRSA name = unlines $
  , "</GnupgKeyParms>"
  ]
 
+pontariusKeyName = "Pontarius-Service"
+
 createGpgKey :: PSState
-             -> Text.Text
-             -> DBus.MethodHandlerT IO BS.ByteString
-createGpgKey st name | Text.null name = DBus.methodError $
-                   MsgError{ errorName = "org.pontarius.Error.createGpgKey"
-                           , errorText = Just "Identity name mustn't be empty"
-                           , errorBody = []
-                           }
-createGpgKey st name = runPSM st $ do
-    ctx <- liftIO $ Gpg.ctxNew Nothing
-    Just keyFpr <- Gpg.genKeyFingerprint <$> liftIO (Gpg.genKey ctx (mkKeyRSA $ Text.unpack name))
-    now <- liftIO getCurrentTime
-    addIdentity "gpg" keyFpr (Just now) Nothing
+             -> IO BS.ByteString
+createGpgKey st = do
+    debug "Creating new key"
+    s <- runPSM st getState
+    case s of
+     CreatingIdentity -> error "Already in state CreatingIdentity"
+     _ -> return ()
+    runPSM st $ setState CreatingIdentity
+    ctx <- Gpg.ctxNew Nothing
+    Just keyFpr <- Gpg.genKeyFingerprint <$> (Gpg.genKey ctx (mkKeyRSA $ pontariusKeyName))
+    now <- getCurrentTime
+    debug "Done creating new key"
+    runPSM st $ do
+        addIdentity "gpg" keyFpr (Just now) Nothing
+        updateState
     return keyFpr
 
 createIdentity :: PSState -> Method
@@ -58,7 +63,7 @@ createIdentity st =
     DBus.Method
     (DBus.repMethod $ createGpgKey st)
     "createIdentity"
-    ("user_name" :-> Result)
+    Result
     ("key_id" -- key_id of the newly created key
      :> ResultDone)
 
@@ -78,6 +83,21 @@ revokeIdentity keyID reason text = do
                            , errorBody = []
                            }
     return ()
+
+initGPG :: PSState -> IO ()
+initGPG st = do
+    keyId <- runPSM st getSigningKey
+    case keyId of
+        Just _ -> debug "Identity is set"
+        Nothing -> do
+            ctx <- Gpg.ctxNew Nothing
+            keys <- Gpg.getKeys ctx True
+            case keys of
+                [] -> void $ createGpgKey st
+                [k] -> do
+                    setSigningGpgKey st . fromJust  =<< Gpg.keyFingerprint k
+                    debug "Found gpg key and setting it as identity"
+                _ -> runPSM st $ setState IdentityUnset
 
 setSigningGpgKey :: PSState
                  -> KeyID
@@ -130,7 +150,7 @@ getIdentitiesMethod :: Method
 getIdentitiesMethod  =
     DBus.Method
     (DBus.repMethod $ (getIdentities :: IO [KeyID] ))
-    "get_identities"
+    "getIdentities"
     Result
     ("identities" -- ^ List of keyIDs
      :> ResultDone)

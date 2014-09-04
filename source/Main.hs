@@ -59,15 +59,32 @@ main = runNoLoggingT . withSqlitePool "test.db3" 3 $ \pool -> liftIO $ do
                           , _psAccountState = accState
                           }
         getStatus = readTVar pState
+        getEnabled = (== AccountEnabled) <$> readTVar accState
         statusProp = mkProperty pontariusObjectPath pontariusInterface
                          "Status"
                          (Just (lift $ atomically getStatus))
                          Nothing
                          PECSTrue
+        enabledProp = mkProperty pontariusObjectPath pontariusInterface
+                         "Enabled"
+                         (Just (lift . atomically $ getEnabled))
+                         (Just $ \e -> do
+                           newState <- case e of
+                                True -> (runPSM psState $ enableAccount)
+                                          >> return AccountEnabled
+
+                                False -> runPSM psState $ disableAccount
+                                          >> return AccountDisabled
+                           liftIO . atomically $ writeTVar accState newState
+                           return True
+                         )
+                         PECSTrue
         ro = rootObject psState <> property statusProp
+                                <> property enabledProp
     initGPG psState
     runPSM psState updateState
     con <- makeServer DBus.Session ro
     requestName "org.pontarius" def con
     manageStmProperty statusProp getStatus con
+    manageStmProperty enabledProp  getEnabled con
     waitFor con

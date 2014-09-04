@@ -44,7 +44,8 @@ import           Xmpp
 data State = State { connection :: Xmpp.Session
                    }
 
-main = withSqlitePool "test.db3" 3 $ \pool -> do
+main :: IO ()
+main = runNoLoggingT . withSqlitePool "test.db3" 3 $ \pool -> liftIO $ do
     runResourceT $ runStderrLoggingT $ flip runSqlPool pool $
         runMigration migrateAll
     xmppConRef <- newTVarIO XmppNoConnection

@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Persist.Stage where
@@ -5,8 +6,10 @@ module Persist.Stage where
 import           Control.Lens
 import           Data.Char
 import qualified Data.List as List
+import           Data.Maybe
 import           Data.UUID
 import           Database.Persist.Sql
+import           Language.Haskell.TH
 import           Network.Xmpp
 
 import qualified Data.ByteString as BS
@@ -36,7 +39,9 @@ instance PersistFieldSql Jid where
 
 pLensRules :: [Char] -> LensRules
 pLensRules pr = lensRules & lensField
-                   .~ (fmap downcase . List.stripPrefix pr . (++ "L"))
+                   .~ (\_ f -> fmap (TopName . mkName . downcase) .
+                                 maybeToList . List.stripPrefix pr . (++ "L")
+                                 . nameBase $ f)
   where
     downcase [] = []
     downcase (x:xs) = toLower x : xs

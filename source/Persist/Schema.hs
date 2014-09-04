@@ -1,4 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -19,4 +20,4 @@ import           Types
 share [ mkPersist sqlSettings, mkMigrate "migrateAll"]
     $(persistFileWith lowerCaseSettings "schema")
 
-makeLensesWith (pLensRules "hostCredentials") ''HostCredentialsGeneric
+makeLensesWith (pLensRules "hostCredentials") ''HostCredentials

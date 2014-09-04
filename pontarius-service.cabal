@@ -71,8 +71,11 @@ executable client
   other-modules:       DBusInterface
   -- other-extensions:
   build-depends:       base >=4.6 && < 5
+                     , lens
+                     , persistent-sqlite
                      , pontarius-xmpp
                      , template-haskell
+                     , time
 --                     , pontarius-xmpp-e2e
                      , d-bus
                      , text
@@ -83,11 +86,12 @@ executable client
                      , hslogger
                      , network
                      , bytestring
-                     , haskeline
                      , transformers
                      , gtk
                      , containers
                      , prototyper
-                     , vty-ui
-  hs-source-dirs:      client
+                     , stm
+                     , unbounded-delays
+--                     , vty-ui
+  hs-source-dirs:      client, source
   default-language:    Haskell2010

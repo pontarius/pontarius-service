@@ -1,4 +1,2 @@
+{-# LANGUAGE LambdaCase #-}
 module Transactions where
-
-rmPeer = undefined
-addPeer = undefined

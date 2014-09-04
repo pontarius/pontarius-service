@@ -40,11 +40,6 @@ tShow = Text.pack . show
 signalConnectionState :: XmppConnectionUpdate -> PSM IO ()
 signalConnectionState newState = return ()
 
-setState :: (MonadReader PSState m, MonadIO m) => PontariusState -> m ()
-setState newState = do
-    st <- view psState
-    liftIO . atomically $ writeTVar st newState
-
 -- | Make a single attempt to connect to the xmpp server
 --
 -- N.B.: Certain conditions may lead to a change of the current state.  The

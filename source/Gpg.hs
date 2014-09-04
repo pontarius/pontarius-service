@@ -40,7 +40,12 @@ mkKeyRSA name = unlines $
 
 createGpgKey :: PSState
              -> Text.Text
-             -> IO BS.ByteString
+             -> DBus.MethodHandlerT IO BS.ByteString
+createGpgKey st name | Text.null name = DBus.methodError $
+                   MsgError{ errorName = "org.pontarius.Error.createGpgKey"
+                           , errorText = Just "Identity name mustn't be empty"
+                           , errorBody = []
+                           }
 createGpgKey st name = runPSM st $ do
     ctx <- liftIO $ Gpg.ctxNew Nothing
     Just keyFpr <- Gpg.genKeyFingerprint <$> liftIO (Gpg.genKey ctx (mkKeyRSA $ Text.unpack name))

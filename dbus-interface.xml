@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node name="/">
+  <node name="pontarius">
+    <interface name="org.freedesktop.DBus.Introspectable">
+      <method name="Introspect">
+        <arg name="xml_data" type="s" direction="out"/>
+      </method>
+    </interface>
+    <interface name="org.freedesktop.DBus.Properties">
+      <property name="Status" type="y" access="read"/>
+    </interface>
+    <interface name="org.pontarius">
+      <method name="importKey">
+        <arg name="location" type="s" direction="in"/>
+        <arg name="key_id" type="ay" direction="out"/>
+      </method>
+      <method name="createIdentity">
+        <arg name="user_name" type="s" direction="in"/>
+        <arg name="key_id" type="ay" direction="out"/>
+      </method>
+      <method name="initialize">
+        <arg name="result" type="y" direction="out"/>
+      </method>
+      <method name="markKeyVerified">
+        <arg name="key-id" type="ay" direction="in"/>
+      </method>
+      <method name="securityHistoryByJID">
+        <arg name="peer" type="s" direction="in"/>
+        <arg name="ake_events" type="a(ubssayay)" direction="out"/>
+        <arg name="challenge_events" type="a(buuss)" direction="out"/>
+        <arg name="revocation_events" type="a(ayu)" direction="out"/>
+        <arg name="revocation_signal_events" type="a(ayu)" direction="out"/>
+      </method>
+      <method name="securityHistoryByKeyID">
+        <arg name="key_id" type="s" direction="in"/>
+        <arg name="ake_events" type="a(ubssayay)" direction="out"/>
+        <arg name="challenge_events" type="a(buuss)" direction="out"/>
+        <arg name="revocation_events" type="a(ayu)" direction="out"/>
+        <arg name="revocation_signal_events" type="a(ayu)" direction="out"/>
+      </method>
+      <method name="revokeKey">
+        <arg name="key_id" type="ay" direction="in"/>
+        <arg name="reason" type="s" direction="in"/>
+      </method>
+      <method name="initiateChallenge">
+        <arg name="peer" type="s" direction="in"/>
+        <arg name="question" type="s" direction="in"/>
+        <arg name="secret" type="s" direction="in"/>
+        <arg name="challenge_id" type="s" direction="out"/>
+      </method>
+      <method name="respondChallenge">
+        <arg name="challenge_id" type="s" direction="in"/>
+        <arg name="secret" type="s" direction="in"/>
+      </method>
+      <method name="getTrustStatus">
+        <arg name="entity" type="s" direction="in"/>
+        <arg name="is_trusted" type="b" direction="out"/>
+      </method>
+      <method name="getEntityPubkey">
+        <arg name="entity" type="s" direction="in"/>
+        <arg name="key_id" type="s" direction="out"/>
+      </method>
+      <method name="addPeer">
+        <arg name="jid" type="s" direction="in"/>
+        <arg name="name" type="s" direction="in"/>
+      </method>
+      <method name="removePeer">
+        <arg name="entity" type="s" direction="in"/>
+      </method>
+      <method name="registerAccount">
+        <arg name="server" type="s" direction="in"/>
+        <arg name="username" type="s" direction="in"/>
+        <arg name="password" type="s" direction="in"/>
+      </method>
+      <method name="get_identities">
+        <arg name="identities" type="aay" direction="out"/>
+      </method>
+      <method name="set_credentials">
+        <arg name="host" type="s" direction="in"/>
+        <arg name="username" type="s" direction="in"/>
+        <arg name="password" type="s" direction="in"/>
+      </method>
+      <method name="get_credentials">
+        <arg name="host" type="s" direction="out"/>
+        <arg name="username" type="s" direction="out"/>
+      </method>
+      <method name="enableAccount"/>
+      <method name="disableAccount"/>
+      <signal name="receivedChallenge">
+        <arg name="peer" type="s"/>
+        <arg name="challenge_id" type="s"/>
+        <arg name="question" type="s"/>
+      </signal>
+      <signal name="challengeResult">
+        <arg name="peer" type="s"/>
+        <arg name="challenge_id" type="s"/>
+        <arg name="initiator" type="s"/>
+        <arg name="result" type="b"/>
+      </signal>
+      <signal name="challengeTimeout">
+        <arg name="peer" type="s"/>
+        <arg name="challenge_id" type="s"/>
+      </signal>
+      <signal name="peerStatusChanged">
+        <arg name="peer" type="s"/>
+        <arg name="status" type="s"/>
+      </signal>
+      <signal name="peerTrustStatusChanged">
+        <arg name="peer" type="s"/>
+        <arg name="trust_status" type="s"/>
+      </signal>
+      <property name="AvailableEntities" type="a(sss)" access="readwrite"/>
+      <property name="UnvailableEntities" type="a(sss)" access="readwrite"/>
+      <property name="SigningKey" type="ay" access="readwrite"/>
+      <property name="ConnectionStatus" type="s" access="readwrite"/>
+    </interface>
+  </node>
+</node>

@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE LambdaCase #-}
@@ -21,6 +22,7 @@ import           DBus
 import           DBus.Types
 import           Data.Maybe
 import           Data.Text (Text)
+import qualified Data.Text as Text
 import           Data.Time.Clock
 import           Database.Persist
 import           Database.Persist.Sqlite
@@ -34,7 +36,7 @@ getCredentials = runDB $ fmap entityVal
                 <$> selectFirst [] [Desc HostCredentialsChanged]
 
 
-getCredentialsM :: PSState -> MethodHandlerT IO (Text, Text)
+getCredentialsM :: PSState -> MethodHandlerT IO Text
 getCredentialsM st = do
     mbCred <- runPSM st getCredentials
     case mbCred of
@@ -42,7 +44,11 @@ getCredentialsM st = do
                     $ MsgError "org.pontarius.Error.GetCredentials"
                                (Just $ "Credentials not set")
                                []
-     Just cred -> return (cred ^. hostnameL, cred ^. usernameL)
+     Just cred -> return $ Text.concat [cred ^. hostnameL
+                                       , "@"
+                                       , cred ^. usernameL
+                                       ]
+
 
 setCredentials :: MonadIO m => Text -> Xmpp.Username -> Xmpp.Password -> PSM m ()
 setCredentials hostName username password = do
@@ -53,9 +59,13 @@ setCredentials hostName username password = do
         return ()
     updateState
 
-setCredentialsM :: PSState -> Text -> Xmpp.Username -> Xmpp.Password -> IO ()
-setCredentialsM st h u p = runPSM st $ do
-    setCredentials h u p
+setCredentialsM :: PSState -> Text -> Xmpp.Password -> MethodHandlerT IO ()
+setCredentialsM st u p = runPSM st $ do
+    case Text.splitOn "@" u of
+        [h', u'] -> setCredentials h' u' p
+        _ -> lift $ methodError $ MsgError "org.pontarius.Error.SetCredentials"
+                                           (Just $ "Malformed username")
+                                           []
     updateState
 
 addIdentity :: MonadIO m =>

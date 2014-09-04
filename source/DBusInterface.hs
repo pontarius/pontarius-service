@@ -63,17 +63,17 @@ instance IsString (ResultDescription ('Arg 'Null)) where
 
 setCredentialsMethod :: PSState -> Method
 setCredentialsMethod st =
-    Method (DBus.repMethod $ \h u p -> setCredentialsM st h u p)
-           "set_credentials"
-           ("host" :-> "username" :-> "password" :-> Result)
+    Method (DBus.repMethod $ \u p -> setCredentialsM st u p)
+           "setCredentials"
+           ("username" :-> "password" :-> Result)
            ResultDone
 
 getCredentialsMethod :: PSState -> Method
 getCredentialsMethod st =
     Method (DBus.repMethod $ getCredentialsM st)
-           "get_credentials"
+           "getCredentials"
            Result
-           ("host" :> "username" :> ResultDone)
+           ("username" :> ResultDone)
 
 securityHistoryByJidMethod :: Method
 securityHistoryByJidMethod =

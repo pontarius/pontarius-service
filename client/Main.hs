@@ -13,6 +13,7 @@ import           Control.Monad.Trans
 import           Control.Monad.Trans.Maybe
 import           DBus
 import           DBus.Message
+import           DBus.Signal
 import           DBus.MessageBus
 import qualified DBus.Property as DBus
 import           DBus.Types
@@ -65,33 +66,26 @@ labeledInput labelText = fmap fst . packNatural . withHBoxNew $ do
     return entry
 
 credentials dbuscon = withVBoxNew $ do
-    hostInput <- labeledInput "host"
     usernameInput <- labeledInput "username"
     passwordInput <- labeledInput "password"
     withHBoxNew $ do
         timedButton "send" 250000 . liftIO $ do
-            host <- entryGetText hostInput :: IO Text
             username <- entryGetText usernameInput :: IO Text
             password <- entryGetText passwordInput :: IO Text
-            (throwME $ set_credentials host username password dbuscon) :: IO ()
+            (throwME $ setCredentials username password dbuscon) :: IO ()
             return ()
         timedButton "get" 250000 $ do
-            res <- liftIO $ get_credentials dbuscon
+            res <- liftIO $ getCredentials dbuscon
             case res of
                 Left _ -> return ()
-                Right (host, username) -> do
-                    logToWindow $ "Got credentials " ++ (Text.unpack host)
-                                   ++ " / " ++ (Text.unpack username)
-                    liftIO $ do
-                        entrySetText hostInput (host :: Text)
-                        entrySetText usernameInput (username :: Text)
+                Right username -> do
+                    logToWindow $ "Got credentials " ++ (Text.unpack username)
+                    liftIO $ do entrySetText usernameInput (username :: Text)
     return ()
 
 identity dbusCon = withVBoxNew $ do
-    identiInput <- labeledInput "identity"
     timedButton "new identity" 250000 $ do
-        identName <- liftIO $ (entryGetText identiInput :: IO Text )
-        ident <- liftIO (throwME $ createIdentity identName dbusCon
+        ident <- liftIO (throwME $ createIdentity dbusCon
                      :: IO ByteString)
         logToWindow $ "Identity created: " ++ show ident
         return ()
@@ -126,5 +120,12 @@ main = do
     signalChan <- newTChanIO
     con <- connectBus Session (\_ _ _ -> return ())
                (\x y z -> atomically $ writeTChan signalChan (x,y,z))
+    let matchPropertiesSignal =
+            MatchSignal{ slotInterface = Just "org.freedesktop.DBus.Properties"
+                       , slotMember = Nothing
+                       , slotPath = Nothing
+                       , slotSender = Just "org.pontarius"
+                       }
+    addSignalHandler matchPropertiesSignal print con
     uiMain (mkMainView signalChan con) keymap (return ())
     return signalChan

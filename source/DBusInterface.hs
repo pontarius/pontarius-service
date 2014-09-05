@@ -141,7 +141,8 @@ revokeIdentityMethod =
 createIdentityMethod :: PSState -> Method
 createIdentityMethod st =
     DBus.Method
-    (DBus.repMethod $ (runPSM st createGpgKey :: IO ByteString))
+    (DBus.repMethod $ (runPSM st synchronousCreateGpgKey
+                           :: MethodHandlerT IO ByteString))
     "createIdentity"
     Result
     ("key_id" -- key_id of the newly created key

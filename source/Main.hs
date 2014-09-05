@@ -53,11 +53,13 @@ main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
     propertiesRef <- newEmptyTMVarIO
     pState <- newTVarIO CredentialsUnset
     accState <- newTVarIO AccountDisabled
+    sem <- newEmptyTMVarIO
     let psState = PSState { _psDB = pool
                           , _psXmppCon = xmppConRef
                           , _psProps = propertiesRef
                           , _psState = pState
                           , _psAccountState = accState
+                          , _psGpgCreateKeySempahore = sem
                           }
         getStatus = readTVar pState
         getEnabled = (== AccountEnabled) <$> readTVar accState

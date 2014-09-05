@@ -71,6 +71,7 @@ data PSState = PSState { _psDB :: ConnectionPool
                        , _psProps :: TMVar PSProperties
                        , _psState :: TVar PontariusState
                        , _psAccountState :: TVar AccountState
+                       , _psGpgCreateKeySempahore :: TMVar ThreadId
                        }
 
 newtype PSM m a = PSM {unPSM :: ReaderT PSState m a}

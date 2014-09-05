@@ -117,9 +117,9 @@ mkMainView signalChan con = fmap (toWidget . snd) . withNotebook $ do
     addPage "actions" $ actionsPage con
 
 main = do
-    signalChan <- newTChanIO
+    sChan <- newTChanIO
     con <- connectBus Session (\_ _ _ -> return ())
-               (\x y z -> atomically $ writeTChan signalChan (x,y,z))
+               (\x y z -> atomically $ writeTChan sChan (x,y,z))
     let matchPropertiesSignal =
             MatchSignal{ slotInterface = Just "org.freedesktop.DBus.Properties"
                        , slotMember = Nothing
@@ -127,5 +127,5 @@ main = do
                        , slotSender = Just "org.pontarius"
                        }
     addSignalHandler matchPropertiesSignal print con
-    uiMain (mkMainView signalChan con) keymap (return ())
+    uiMain (mkMainView sChan con) keymap (return ())
     return signalChan

@@ -79,27 +79,6 @@ setSigningGpgKey st keyFpr = do
         runPSM st . when haveKey $ setSigningKey "gpg" keyFpr
         return haveKey
 
-setSigningGpgKeyM :: PSState
-                  -> KeyID
-                  -> MethodHandlerT IO ()
-setSigningGpgKeyM st keyFpr = do
-    haveKey <- liftIO $ setSigningGpgKey st keyFpr
-    case haveKey of
-        True -> return ()
-        False -> DBus.methodError $
-                 MsgError { errorName = "org.pontarius.Error.setIdentity"
-                          , errorText = Just "No such identity"
-                          , errorBody = []
-                          }
-
-setIdentityMethod :: PSState -> Method
-setIdentityMethod st =
-    DBus.Method (DBus.repMethod $ setSigningGpgKeyM st)
-                "setIdentity"
-                ("keyID" :-> Result)
-                ResultDone
-
-
 
 getSigningPgpKey :: PSState -> DBus.MethodHandlerT IO KeyID
 getSigningPgpKey st = do

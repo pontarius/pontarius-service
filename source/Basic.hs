@@ -1,9 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Basic where
 
+import Control.Monad.Trans
 import DBus
 import Data.Text (Text)
 import System.IO
+
 
 pontariusObjectPath :: ObjectPath
 pontariusObjectPath = "/pontarius"
@@ -11,5 +13,5 @@ pontariusObjectPath = "/pontarius"
 pontariusInterface :: Text
 pontariusInterface = "org.pontarius"
 
-debug :: String -> IO ()
-debug = hPutStrLn stderr
+debug :: MonadIO m => String -> m ()
+debug = liftIO . hPutStrLn stderr

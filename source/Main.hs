@@ -66,7 +66,7 @@ main = runNoLoggingT . withSqlitePool "test.db3" 3 $ \pool -> liftIO $ do
                          Nothing
                          PECSTrue
         enabledProp = mkProperty pontariusObjectPath pontariusInterface
-                         "Enabled"
+                         "AccountEnabled"
                          (Just (lift . atomically $ getEnabled))
                          (Just $ \e -> do
                            newState <- case e of

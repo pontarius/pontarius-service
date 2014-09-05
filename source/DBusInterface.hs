@@ -185,20 +185,6 @@ registerAccountMethod =
                         :-> Result)
     ResultDone
 
-enableAccountMethod :: PSState -> Method
-enableAccountMethod st = DBus.Method
-    (DBus.repMethod (runPSM st enableAccount :: MethodHandlerT IO ()))
-    "enableAccount"
-    Result
-    ResultDone
-
-disableAccountMethod :: PSState -> Method
-disableAccountMethod st = DBus.Method
-    (DBus.repMethod (runPSM st disableAccount :: MethodHandlerT IO ()))
-    "disableAccount"
-    Result
-    ResultDone
-
 sArgument :: SingI t => Text -> Proxy (t :: DBusType) -> SignalArgument
 sArgument name (Proxy :: Proxy (t :: DBusType)) =
     SignalArgument { signalArgumentName = name
@@ -299,8 +285,6 @@ xmppInterface st = Interface
                 , getIdentitiesMethod
                 , setCredentialsMethod st
                 , getCredentialsMethod st
-                , enableAccountMethod st
-                , disableAccountMethod st
                 ] []
                 [ receivedChallengeSignal
                 , challengeResultSignal

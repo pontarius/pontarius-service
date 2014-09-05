@@ -88,10 +88,10 @@ connector d st = do
         -- Check that we (should) have the necessary information before trying
         -- to connect
         case ps of
-            CredentialsUnset -> retry
-            IdentityUnset -> retry
-            AuthenticationDenied -> retry
-            _ -> return ()
+            Disabled -> return ()
+            Authenticating -> return ()
+            Authenticated -> return ()
+            _ -> retry
         -- Check that the account is enabled before trying to connect
         case a of
            AccountDisabled -> retry

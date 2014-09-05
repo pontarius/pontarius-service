@@ -29,7 +29,8 @@ import           Database.Persist.Sqlite
 import qualified Network.Xmpp as Xmpp
 
 data PontariusState = CredentialsUnset
-                    | IdentityUnset
+                    | IdentityNotFound
+                    | IdentitiesAvailable
                     | CreatingIdentity
                     | Disabled
                     | Authenticating
@@ -118,7 +119,7 @@ data RevocationEvent =
                     }
 
 data RevocationSignalEvent =
-    RevocationSignalEvent { revocationSignalEventKeyID :: KeyID
+    RevocationlEvent { revocationSignalEventKeyID :: KeyID
                           , revocationSignalEventTime :: UTCTime
                           }
 

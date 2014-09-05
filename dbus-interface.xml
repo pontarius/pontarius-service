@@ -1,5 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
 <node name="/">
   <node name="pontarius">
     <interface name="org.freedesktop.DBus.Introspectable">
@@ -8,7 +7,25 @@
       </method>
     </interface>
     <interface name="org.freedesktop.DBus.Properties">
-      <property name="Status" type="y" access="read"/>
+      <method name="Get">
+        <arg name="interface_name" type="s" direction="in"/>
+        <arg name="property_name" type="s" direction="in"/>
+        <arg name="value" type="v" direction="out"/>
+      </method>
+      <method name="Set">
+        <arg name="interface_name" type="s" direction="in"/>
+        <arg name="property_name" type="s" direction="in"/>
+        <arg name="value" type="v" direction="in"/>
+      </method>
+      <method name="GetAll">
+        <arg name="interface_name" type="s" direction="in"/>
+        <arg name="props" type="a{sv}" direction="out"/>
+      </method>
+      <signal name="PropertiesChanged">
+        <arg name="interface_name" type="s"/>
+        <arg name="changed_properties" type="a{sv}"/>
+        <arg name="invalidated_properties" type="as"/>
+      </signal>
     </interface>
     <interface name="org.pontarius">
       <method name="importKey">
@@ -38,9 +55,11 @@
         <arg name="revocation_events" type="a(ayu)" direction="out"/>
         <arg name="revocation_signal_events" type="a(ayu)" direction="out"/>
       </method>
-      <method name="revokeKey">
+      <method name="setIdentity">
+        <arg name="keyID" type="ay" direction="in"/>
+      </method>
+      <method name="revokeIdentity">
         <arg name="key_id" type="ay" direction="in"/>
-        <arg name="reason" type="s" direction="in"/>
       </method>
       <method name="initiateChallenge">
         <arg name="peer" type="s" direction="in"/>
@@ -82,8 +101,6 @@
       <method name="getCredentials">
         <arg name="username" type="s" direction="out"/>
       </method>
-      <method name="enableAccount"/>
-      <method name="disableAccount"/>
       <signal name="receivedChallenge">
         <arg name="peer" type="s"/>
         <arg name="challenge_id" type="s"/>
@@ -107,9 +124,12 @@
         <arg name="peer" type="s"/>
         <arg name="trust_status" type="s"/>
       </signal>
-      <property name="AvailableEntities" type="a(sss)" access="readwrite"/>
-      <property name="UnvailableEntities" type="a(sss)" access="readwrite"/>
-      <property name="SigningKey" type="ay" access="readwrite"/>
+      <property name="AvailableEntities" type="a(sss)" access="read"/>
+      <property name="UnvailableEntities" type="a(sss)" access="read"/>
+      <property name="Identity" type="ay" access="read"/>
+      <property name="Status" type="y" access="read"/>
+      <property name="AccountEnabled" type="b" access="readwrite"/>
+      <property name="Username" type="s" access="read"/>
     </interface>
   </node>
 </node>

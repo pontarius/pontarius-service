@@ -38,6 +38,7 @@ import           Basic
 import           DBusInterface
 import           Gpg
 import           Persist
+import           Transactions
 import           Types
 import           Xmpp
 
@@ -45,7 +46,7 @@ data State = State { connection :: Xmpp.Session
                    }
 
 main :: IO ()
-main = runNoLoggingT . withSqlitePool "test.db3" 3 $ \pool -> liftIO $ do
+main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
     runResourceT $ runStderrLoggingT $ flip runSqlPool pool $
         runMigration migrateAll
     xmppConRef <- newTVarIO XmppNoConnection
@@ -66,7 +67,7 @@ main = runNoLoggingT . withSqlitePool "test.db3" 3 $ \pool -> liftIO $ do
                          Nothing
                          PECSTrue
         enabledProp = mkProperty pontariusObjectPath pontariusInterface
-                         "Enabled"
+                         "AccountEnabled"
                          (Just (lift . atomically $ getEnabled))
                          (Just $ \e -> do
                            newState <- case e of
@@ -79,9 +80,15 @@ main = runNoLoggingT . withSqlitePool "test.db3" 3 $ \pool -> liftIO $ do
                            return True
                          )
                          PECSTrue
+        usernameProp = mkProperty  pontariusObjectPath pontariusInterface
+                         "Username"
+                         (Just (getCredentialsM psState))
+                         Nothing
+                         PECSFalse
+
         ro = rootObject psState <> property statusProp
                                 <> property enabledProp
-    initGPG psState
+                                <> property usernameProp
     runPSM psState updateState
     con <- makeServer DBus.Session ro
     requestName "org.pontarius" def con

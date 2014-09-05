@@ -16,6 +16,7 @@ import           Control.Lens
 import           Control.Monad.Trans
 import           DBus as DBus
 import           DBus.Types
+import           Data.ByteString (ByteString)
 import           Data.Proxy
 import           Data.Singletons
 import           Data.String
@@ -26,6 +27,7 @@ import qualified Network.Xmpp as Xmpp
 import           Basic
 import           Gpg
 import           Persist
+import           Transactions
 import           Types
 import           Xmpp
 
@@ -51,7 +53,7 @@ pontariusProperty name =
              , propertyPath = pontariusObjectPath
              , propertyInterface = pontariusInterface
              , propertyGet = Just stub
-             , propertySet = Just stub
+             , propertySet = Nothing
              , propertyEmitsChangedSignal = PECSTrue
              }
 ----------------------------------------------------
@@ -136,6 +138,16 @@ revokeIdentityMethod =
     (DBus.repMethod $ (revokeIdentity ::  KeyID -> MethodHandlerT IO ()))
     "revokeIdentity" ("key_id" :-> Result) ResultDone
 
+createIdentityMethod :: PSState -> Method
+createIdentityMethod st =
+    DBus.Method
+    (DBus.repMethod $ (runPSM st createGpgKey :: IO ByteString))
+    "createIdentity"
+    Result
+    ("key_id" -- key_id of the newly created key
+     :> ResultDone)
+
+
 initiateChallengeMethod :: Method
 initiateChallengeMethod =
     DBus.Method
@@ -183,20 +195,6 @@ registerAccountMethod =
     (DBus.repMethod $ (stub :: Text -> Text -> Text -> IO ()))
     "registerAccount" ("server" :-> "username" :-> "password"
                         :-> Result)
-    ResultDone
-
-enableAccountMethod :: PSState -> Method
-enableAccountMethod st = DBus.Method
-    (DBus.repMethod (runPSM st enableAccount :: MethodHandlerT IO ()))
-    "enableAccount"
-    Result
-    ResultDone
-
-disableAccountMethod :: PSState -> Method
-disableAccountMethod st = DBus.Method
-    (DBus.repMethod (runPSM st disableAccount :: MethodHandlerT IO ()))
-    "disableAccount"
-    Result
     ResultDone
 
 sArgument :: SingI t => Text -> Proxy (t :: DBusType) -> SignalArgument
@@ -283,11 +281,12 @@ unavailanbleEntitiesProperty = pontariusProperty "UnvailableEntities"
 xmppInterface :: PSState -> Interface
 xmppInterface st = Interface
                 [ importKeyMethod
-                , createIdentity st
+                , createIdentityMethod st
                 , initializeMethod st
                 , markKeyVerifiedMethod
                 , securityHistoryByJidMethod
                 , securityHistoryByKeyIdMethod
+                , setIdentityMethod st
                 , revokeIdentityMethod
                 , initiateChallengeMethod
                 , respondChallengeMethod
@@ -299,8 +298,6 @@ xmppInterface st = Interface
                 , getIdentitiesMethod
                 , setCredentialsMethod st
                 , getCredentialsMethod st
-                , enableAccountMethod st
-                , disableAccountMethod st
                 ] []
                 [ receivedChallengeSignal
                 , challengeResultSignal

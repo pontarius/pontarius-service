@@ -12,11 +12,11 @@ import           Control.Monad
 import           Control.Monad.Reader
 import           DBus
 import qualified DBus.Types as DBus
+import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import           Data.Maybe
 import           Data.Monoid
-import qualified Data.Text as Text
-import           Data.Time.Clock
+import           Data.Text (Text)
 import qualified GpgMe as Gpg
 
 --import           Network.Xmpp.E2E
@@ -38,38 +38,19 @@ mkKeyRSA name = unlines $
  , "</GnupgKeyParms>"
  ]
 
+pontariusKeyName :: String
 pontariusKeyName = "Pontarius-Service"
 
-createGpgKey :: PSState
-             -> IO BS.ByteString
-createGpgKey st = do
-    debug "Creating new key"
-    s <- runPSM st getState
-    case s of
-     CreatingIdentity -> error "Already in state CreatingIdentity"
-     _ -> return ()
-    runPSM st $ setState CreatingIdentity
+newGpgKey :: IO BS.ByteString
+newGpgKey = do
     ctx <- Gpg.ctxNew Nothing
-    Just keyFpr <- Gpg.genKeyFingerprint <$> (Gpg.genKey ctx (mkKeyRSA $ pontariusKeyName))
-    now <- getCurrentTime
-    debug "Done creating new key"
-    runPSM st $ do
-        addIdentity "gpg" keyFpr (Just now) Nothing
-        updateState
-    return keyFpr
-
-createIdentity :: PSState -> Method
-createIdentity st =
-    DBus.Method
-    (DBus.repMethod $ createGpgKey st)
-    "createIdentity"
-    Result
-    ("key_id" -- key_id of the newly created key
-     :> ResultDone)
+    Just kid <- Gpg.genKeyFingerprint <$>
+                   Gpg.genKey ctx (mkKeyRSA $ pontariusKeyName)
+    return kid
 
 revokeIdentity :: MonadIO m => KeyID -> MethodHandlerT m ()
 revokeIdentity keyID = do
-    let text = "" :: Text.Text
+    let text = "" :: Text
         reason = Gpg.NoReason
     ctx <- liftIO $ Gpg.ctxNew Nothing
     keys <- liftIO $ Gpg.findKeyBy ctx True Gpg.keyFingerprint (Just keyID)
@@ -87,22 +68,7 @@ revokeIdentity keyID = do
                            }
     return ()
 
-initGPG :: PSState -> IO ()
-initGPG st = do
-    keyId <- runPSM st getSigningKey
-    case keyId of
-        Just _ -> debug "Identity is set"
-        Nothing -> do
-            ctx <- Gpg.ctxNew Nothing
-            keys <- Gpg.getKeys ctx True
-            case keys of
-                [] -> void $ createGpgKey st
-                [k] -> do
-                    setSigningGpgKey st . fromJust  =<< Gpg.keyFingerprint k
-                    debug "Found gpg key and setting it as identity"
-
-                _ -> runPSM st $ setState IdentitiesAvailable
-
+setSigningGpgKey :: PSState -> ByteString -> IO Bool
 setSigningGpgKey st keyFpr = do
         ctx <- Gpg.ctxNew Nothing
         keys <- Gpg.getKeys ctx True
@@ -126,7 +92,8 @@ setSigningGpgKeyM st keyFpr = do
                           , errorBody = []
                           }
 
-setSigningKeyMethod st =
+setIdentityMethod :: PSState -> Method
+setIdentityMethod st =
     DBus.Method (DBus.repMethod $ setSigningGpgKeyM st)
                 "setIdentity"
                 ("keyID" :-> Result)
@@ -138,7 +105,8 @@ getSigningPgpKey :: PSState -> DBus.MethodHandlerT IO KeyID
 getSigningPgpKey st = do
     pIdent <- (runPSM st $ getSigningKey) >>= \case
         Just pi -> return pi
-        Nothing -> DBus.methodError $
+        Nothing -> do
+            DBus.methodError $
                    MsgError{ errorName = "org.pontarius.Error.Sign"
                            , errorText = Just "No signing key found"
                            , errorBody = []
@@ -174,6 +142,7 @@ getIdentitiesMethod  =
     Result
     ("identities" -- ^ List of keyIDs
      :> ResultDone)
+
 
 -- importKey st peer key = do
 --     ctx <- Gpg.ctxNew Nothing

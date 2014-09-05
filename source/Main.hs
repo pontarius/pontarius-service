@@ -92,7 +92,16 @@ main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
                                 <> property enabledProp
                                 <> property usernameProp
     con <- makeServer DBus.Session ro
-    requestName "org.pontarius" def con
+    requestName "org.pontarius" def con >>= liftIO . \case
+        PrimaryOwner -> return ()
+        DBus.InQueue -> do
+            debug "dbus name is already taken"
+            exitSuccess
+        DBus.Exists -> do
+            debug "dbus name is already taken"
+            exitSuccess
+        DBus.AlreadyOwner -> do
+            debug "dbus server reports \"already owner\"?!?"
     manageStmProperty statusProp getStatus con
     manageStmProperty enabledProp  getEnabled con
     runPSM psState updateState

@@ -3,25 +3,29 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Xmpp where
 
+import           Control.Applicative
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Concurrent.Thread.Delay
-import           Control.Concurrent.Timeout
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
-import           Control.Monad.Trans
 import           DBus
+import           DBus.Signal
 import           DBus.Types
 import           Data.Data
-import qualified Data.Foldable as Foldable
+import           Data.Map (Map)
+
+import qualified Data.Map as Map
 import           Data.Text (Text)
 import qualified Data.Text as Text
-import           Data.Typeable
+
 
 import qualified Network.Xmpp as Xmpp
+import qualified Network.Xmpp.IM as Xmpp
 import           Persist
 import           Types
+import           Basic
 
 data XmppConnectionUpdate = NowConnected
                           | ConnectionLost
@@ -38,7 +42,7 @@ tShow = Text.pack . show
 -- (i.e. the connection has been established, was closed, could not be
 -- established due to error etc.)
 signalConnectionState :: XmppConnectionUpdate -> PSM IO ()
-signalConnectionState newState = return ()
+signalConnectionState _newState = return ()
 
 -- | Make a single attempt to connect to the xmpp server
 --
@@ -50,10 +54,12 @@ tryConnect st = runPSM st $ do
     mbCredentials <- getCredentials
     case mbCredentials of
         Just cred -> do
-            let hostname = hostCredentialsHostname cred
+            let hostname = Text.unpack $ hostCredentialsHostname cred
                 username = hostCredentialsUsername cred
                 password = hostCredentialsPassword cred
-            mbSess <- liftIO $ Xmpp.session (Text.unpack hostname)
+            debug $ "Trying to connect to " ++ show hostname
+                                        ++ " as " ++ show username
+            mbSess <- liftIO $ Xmpp.session hostname
                           (Xmpp.simpleAuth username password)
                           (def & Xmpp.tlsUseNameIndicationL .~ False)
             case mbSess of
@@ -75,14 +81,13 @@ tryConnect st = runPSM st $ do
 -- | Try to establish a connection to the server. If the connection fails
 -- another attempt is made after a (exponentially increasing) grace period. This
 -- function blocks until pre-conditions are met
-connector :: Integer -> PSState -> IO Xmpp.Session
+connector :: Integer -> PSState -> IO (Xmpp.Session, [ThreadId])
 connector d st = do
     let pst = st ^. psState
         as = st ^. psAccountState
-        xmppRef =  st ^. psXmppCon
         -- The following operation will only finish when all the preconditions
         -- are met _simultaneously_
-    mbXmppCon <- liftIO . atomically $ do
+    con <- liftIO . atomically $ do
         ps <- readTVar pst
         a <- readTVar as
         -- Check that we (should) have the necessary information before trying
@@ -95,21 +100,37 @@ connector d st = do
         -- Check that the account is enabled before trying to connect
         case a of
            AccountDisabled -> retry
-           AccountEnabled -> return ()
+           AccountEnabled -> readTMVar $ st ^. psDBusConnection
+    runPSM st $ setState Authenticating
     mbSess <- liftIO . Ex.try $ tryConnect st
     case mbSess of
         Left e -> do
             -- e :: XmppConnectionUpdate
+            debug $ "Connection failed. Waiting for " ++ show d ++ " seconds"
             runPSM st $ signalConnectionState e
-            liftIO $ delay (d * 10^9)
+            liftIO $ delay (d * 1000000)
                 -- avoid hammering the server, delay for a certain amount of
                 -- seconds
             connector (nextDelay d) st
-        Right sess -> return sess
+        Right sess -> do
+            sess' <- Xmpp.dupSession sess
+            subscriptions <- forkIO $ do
+                st <- Xmpp.waitForPresence ((== Xmpp.Subscribe )
+                                            . Xmpp.presenceType ) sess'
+                let Just fr = Xmpp.presenceTo st
+                    sig = Signal { signalPath = pontariusObjectPath
+                                 , signalInterface = pontariusInterface
+                                 , signalMember = "subscriptionRequest"
+                                 , signalBody = [DBV $ toRep fr]
+                                 }
+                emitSignal sig con
+            return (sess, [subscriptions])
+
   where
     -- Exponential back-off, we double the retry delay each time up to a total
     -- of 5 minutes and ensure that it's not below 5 seconds
     nextDelay d = max 5 (min (2*d) (5*60))
+
 
 enableXmpp :: (MonadReader PSState m, MonadIO m, Functor m) => m ()
 enableXmpp = do
@@ -118,7 +139,7 @@ enableXmpp = do
     c <- liftIO . atomically $ readTVar xc
     case c of
         XmppConnecting _ -> return ()
-        XmppConnected _ -> return ()
+        XmppConnected _ _ -> return ()
         XmppNoConnection -> void . liftIO .  forkIO $ do
             tid <- myThreadId
             -- | To avoid a race condition where multiple connection threads are
@@ -134,8 +155,8 @@ enableXmpp = do
             case run of
                  False -> return ()
                  True -> do
-                     sess <- connector 0 st
-                     atomically . writeTVar xc $ XmppConnected sess
+                     (sess, threads) <- connector 0 st
+                     atomically . writeTVar xc $ XmppConnected sess threads
 
 enableAccount :: (Functor m, MonadIO m) => PSM (MethodHandlerT m) ()
 enableAccount = do
@@ -145,9 +166,10 @@ enableAccount = do
 
 disconnect :: Xmpp.Session -> IO ()
 disconnect con = do
-    Xmpp.sendPresence Xmpp.presenceOffline con
+    _ <- Xmpp.sendPresence Xmpp.presenceOffline con
     Xmpp.endSession con
 
+disableAccount :: (MonadReader PSState m, MonadIO m) => m ()
 disableAccount = do
     as <- view psAccountState
     xmppRef <- view psXmppCon
@@ -156,34 +178,22 @@ disableAccount = do
         readTVar xmppRef
     case mbXmppSess of
         XmppConnecting tid -> liftIO $ killThread tid
-        XmppConnected con -> liftIO $ disconnect con
+        XmppConnected con threads -> do
+            liftIO $ disconnect con
+            liftIO . forM_ threads $ killThread
         XmppNoConnection -> return ()
+    liftIO  . atomically $ writeTVar xmppRef XmppNoConnection
 
--- connect :: PSM (MethodHandlerT IO) ()
--- connect = do
---     sessRef <- xmppRef
---     mbRef <- liftIO . atomically . tryReadTMVar $ sessRef
---     case mbRef of
---         Just sess -> do
---             liftIO . atomically $ putTMVar sessRef sess
---             return ()
---         Nothing -> do
---             sess <- connectXmpp
---             liftIO . atomically $ putTMVar sessRef sess
---             return ()
 
--- disconnect :: PSM (MethodHandlerT IO) ()
--- disconnect = do
---     sessRef <- xmppRef
---     ref <- liftIO . atomically . tryTakeTMVar $ sessRef
---     case ref of
---         Just sess -> do
---             liftIO $ Xmpp.endSession sess
---             return ()
---         Nothing -> return ()
+getXmppRoster :: PSM (MethodHandlerT IO) (Map Xmpp.Jid Xmpp.Item)
+getXmppRoster = do
+    xc <- view psXmppCon
+    c <- liftIO . atomically $ readTVar xc
+    case c of
+        XmppConnected sess _ -> Xmpp.items <$> liftIO (Xmpp.getRoster sess)
+        _ -> lift $ methodError $ MsgError "org.pontarius.Error.getRoster"
+                                      (Just $ "Not connected")
+                                      []
 
--- reconnect :: PSM (MethodHandlerT IO) ()
--- reconnect = do
---     _ <- disconnect
---     _ <- connect
---     return ()
+getPeers :: PSM (MethodHandlerT IO) [Xmpp.Jid]
+getPeers = map Xmpp.riJid . filter Xmpp.riApproved . Map.elems <$> getXmppRoster

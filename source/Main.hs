@@ -8,35 +8,19 @@
 
 import           Control.Applicative
 import           Control.Concurrent.STM
-import qualified Control.Exception as Ex
-import           Control.Lens
 import           Control.Monad.Logger
 import           Control.Monad.Reader
-import           Control.Monad.Trans
 import           Control.Monad.Trans.Resource
 import           DBus
-import           DBus.Error
-import           DBus.Introspect
 import           DBus.Property
-import           DBus.Types
-import           Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import           Data.Int
 import           Data.Monoid
-import           Data.Text (Text)
-import qualified Data.Text as Text
-import qualified Data.Text.IO as Text
-import           Data.Time.Clock
-import           Data.UUID
-import           Database.Persist.Quasi
 import           Database.Persist.Sqlite
-import           Database.Persist.TH
-import           Network.Xmpp (Jid)
 import qualified Network.Xmpp as Xmpp
+import           System.Exit
+import           System.Log.Logger
 
 import           Basic
 import           DBusInterface
-import           Gpg
 import           Persist
 import           Transactions
 import           Types
@@ -46,20 +30,22 @@ data State = State { connection :: Xmpp.Session
                    }
 
 main :: IO ()
-main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
-    runResourceT $ runStderrLoggingT $ flip runSqlPool pool $
-        runMigration migrateAll
+main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
+    runResourceT $ flip runSqlPool pool $ runMigration migrateAll
+    updateGlobalLogger "Pontarius.Xmpp" $ setLevel DEBUG
     xmppConRef <- newTVarIO XmppNoConnection
     propertiesRef <- newEmptyTMVarIO
     pState <- newTVarIO CredentialsUnset
     accState <- newTVarIO AccountDisabled
     sem <- newEmptyTMVarIO
+    conRef <- newEmptyTMVarIO
     let psState = PSState { _psDB = pool
                           , _psXmppCon = xmppConRef
                           , _psProps = propertiesRef
                           , _psState = pState
                           , _psAccountState = accState
                           , _psGpgCreateKeySempahore = sem
+                          , _psDBusConnection = conRef
                           }
         getStatus = readTVar pState
         getEnabled = (== AccountEnabled) <$> readTVar accState
@@ -87,11 +73,17 @@ main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
                          (Just (getCredentialsM psState))
                          Nothing
                          PECSFalse
-
+        peersProp = mkProperty  pontariusObjectPath pontariusInterface
+                         "Peers"
+                         (Just $ runPSM psState getPeers)
+                         Nothing
+                         PECSFalse -- TODO
         ro = rootObject psState <> property statusProp
                                 <> property enabledProp
                                 <> property usernameProp
+                                <> property peersProp
     con <- makeServer DBus.Session ro
+    atomically $ putTMVar conRef con
     requestName "org.pontarius" def con >>= liftIO . \case
         PrimaryOwner -> return ()
         DBus.InQueue -> do
@@ -104,5 +96,8 @@ main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
             debug "dbus server reports \"already owner\"?!?"
     manageStmProperty statusProp getStatus con
     manageStmProperty enabledProp  getEnabled con
+    debug "updateing state"
     runPSM psState updateState
+    debug "done updating state"
+
     waitFor con

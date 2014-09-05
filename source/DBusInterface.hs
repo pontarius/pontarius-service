@@ -26,10 +26,8 @@ import qualified Network.Xmpp as Xmpp
 
 import           Basic
 import           Gpg
-import           Persist
 import           Transactions
 import           Types
-import           Xmpp
 
 data Stub = Stub deriving (Show, Typeable)
 
@@ -274,6 +272,14 @@ peerTrustStatusChangeSignal = SignalI { signalName = "peerTrustStatusChanged"
                                       , signalAnnotations = []
                                       }
 
+subscriptionRequestSignal :: SignalInterface
+subscriptionRequestSignal = SignalI { signalName = "subscriptionRequest"
+                                    , signalArguments =
+                                        [ sArgument "peer"
+                                          (Proxy :: Proxy (RepType Xmpp.Jid))
+                                        ]
+                                    , signalAnnotations = []
+                                    }
 
 availableEntitiesProperty :: Property (RepType [Ent])
 availableEntitiesProperty = pontariusProperty "AvailableEntities"
@@ -313,6 +319,7 @@ xmppInterface st = Interface
                 , challengeTimeoutSignal
                 , peerStatusChangeSignal
                 , peerTrustStatusChangeSignal
+                , subscriptionRequestSignal
                 ]
                 [ SomeProperty availableEntitiesProperty
                 , SomeProperty unavailanbleEntitiesProperty

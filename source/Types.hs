@@ -58,12 +58,12 @@ data PSProperties = PSProperties{ _pspConnectionStatus :: Property (RepType Bool
 -- | When requesting a new connection we fork a new thread that creates the
 -- connection and sets it's own threadID so it can be aborted when required
 data XmppState = XmppConnecting ThreadId
-               | XmppConnected  Xmpp.Session
+               | XmppConnected  Xmpp.Session [ThreadId]
                | XmppNoConnection
 
 instance Show XmppState where
     show (XmppConnecting tid) = "<Connecting, thread = " ++ show tid ++ " >"
-    show (XmppConnected _) = "Connected"
+    show (XmppConnected _ _) = "Connected"
     show XmppNoConnection = "Disconnected"
 
 data PSState = PSState { _psDB :: ConnectionPool
@@ -72,6 +72,7 @@ data PSState = PSState { _psDB :: ConnectionPool
                        , _psState :: TVar PontariusState
                        , _psAccountState :: TVar AccountState
                        , _psGpgCreateKeySempahore :: TMVar ThreadId
+                       , _psDBusConnection :: TMVar DBusConnection
                        }
 
 newtype PSM m a = PSM {unPSM :: ReaderT PSState m a}

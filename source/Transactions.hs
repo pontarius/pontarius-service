@@ -6,7 +6,6 @@ import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Lens
 import           Control.Monad.Reader
-import           Control.Monad.Trans
 import           Control.Monad.Trans.Either
 import           DBus.Types
 import qualified Data.ByteString as BS
@@ -42,7 +41,7 @@ updateState = do
         case mbCon of
             XmppNoConnection -> is (Just Disabled)
             XmppConnecting _ -> is (Just Authenticating)
-            XmppConnected con -> do
+            XmppConnected con _ -> do
                 sstate <- liftIO . atomically $ Xmpp.streamState con
                 case sstate of
                     Xmpp.Plain -> is (Just Authenticating)

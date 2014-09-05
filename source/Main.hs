@@ -53,11 +53,13 @@ main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
     propertiesRef <- newEmptyTMVarIO
     pState <- newTVarIO CredentialsUnset
     accState <- newTVarIO AccountDisabled
+    sem <- newEmptyTMVarIO
     let psState = PSState { _psDB = pool
                           , _psXmppCon = xmppConRef
                           , _psProps = propertiesRef
                           , _psState = pState
                           , _psAccountState = accState
+                          , _psGpgCreateKeySempahore = sem
                           }
         getStatus = readTVar pState
         getEnabled = (== AccountEnabled) <$> readTVar accState
@@ -89,9 +91,9 @@ main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
         ro = rootObject psState <> property statusProp
                                 <> property enabledProp
                                 <> property usernameProp
-    runPSM psState updateState
     con <- makeServer DBus.Session ro
     requestName "org.pontarius" def con
     manageStmProperty statusProp getStatus con
     manageStmProperty enabledProp  getEnabled con
+    runPSM psState updateState
     waitFor con

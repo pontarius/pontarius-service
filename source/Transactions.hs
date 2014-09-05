@@ -2,8 +2,10 @@
 {-# LANGUAGE LambdaCase #-}
 module Transactions where
 
+import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Lens
+import           Control.Monad.Reader
 import           Control.Monad.Trans
 import           Control.Monad.Trans.Either
 import           DBus.Types
@@ -24,57 +26,85 @@ updateState = do
     -- | If a condition that triggers a state transition is found we immediately
     -- return it with left.
     eNewState <- runEitherT $ do
-        getCredentials `orIs` CredentialsUnset
+        getCredentials `orIs` (Just CredentialsUnset)
         lift getSigningKey  >>= \case
             Nothing -> liftIO getIdentities >>= \case
-                [] -> do _ <- lift createGpgKey
-                         as <- lift $ view psAccountState
-                         liftIO (atomically (readTVar as)) >>= \case
-                             AccountEnabled -> is Authenticating
-                             AccountDisabled -> is Disabled
-                _ -> is IdentitiesAvailable
+                [] -> createGpgKey
+                _ -> is (Just IdentitiesAvailable)
             Just key -> do
                 ids <- liftIO getIdentities
                 if privIdentKeyID key `elem` ids
                    then return ()
-                   else is IdentityNotFound
+                   else is (Just IdentityNotFound)
         mbCon <- liftIO . atomically . readTVar =<< view psXmppCon
         case mbCon of
-            XmppNoConnection -> is Disabled
-            XmppConnecting _ -> is Authenticating
+            XmppNoConnection -> is (Just Disabled)
+            XmppConnecting _ -> is (Just Authenticating)
             XmppConnected con -> do
                 sstate <- liftIO . atomically $ Xmpp.streamState con
                 case sstate of
-                    Xmpp.Plain -> is Authenticating
-                    Xmpp.Secured -> return ()
-                    Xmpp.Closed -> is Authenticating
-                    Xmpp.Finished -> return ()
+                    Xmpp.Plain -> is (Just Authenticating)
+                    Xmpp.Secured -> is Nothing
+                    Xmpp.Closed -> is (Just Authenticating)
+                    Xmpp.Finished -> is Nothing
     case eNewState of
         -- | Writing to the TVar will automatically trigger a signal if necessary
-        Left newState -> do
+        Left (Just newState) -> do
             liftIO $ print newState
             setState newState
         -- | No state-changing condition was found, we keep the old state
-        Right _ -> return ()
+        _ -> return ()
   where
     orIs m st = lift m >>= \case
         Just _ -> return ()
         Nothing -> left st
     is = left
 
-createGpgKey :: MonadIO m => PSM m BS.ByteString
+synchronousCreateGpgKey :: (MonadIO m, Functor m) =>
+                          PSM (MethodHandlerT m) BS.ByteString
+synchronousCreateGpgKey = do
+    sem <- view psGpgCreateKeySempahore
+    tid <- liftIO myThreadId
+    liftIO (atomically $ tryPutTMVar sem tid) >>= \case
+        False -> lift . methodError $
+                 MsgError "org.pontarius.Error.createIdentity"
+                          (Just $ "Identity creation is already running")
+                          []
+        True -> do
+            setState CreatingIdentity
+            keyFpr <- liftIO newGpgKey
+            now <- liftIO $ getCurrentTime
+            liftIO $ debug "Done creating new key"
+            addIdentity "gpg" keyFpr (Just now) Nothing
+            as <- view psAccountState
+            liftIO (atomically (readTVar as)) >>= \case
+                AccountEnabled -> setState Authenticating
+                AccountDisabled -> setState Disabled
+            void . liftIO  . atomically $ takeTMVar sem
+            return keyFpr
+
+createGpgKey :: MonadIO m => EitherT (Maybe PontariusState) (PSM m) ()
 createGpgKey = do
     liftIO $ debug "Creating new key"
-    s <- getState
-    case s of
-     CreatingIdentity -> error "Already in state CreatingIdentity"
-     _ -> return ()
-    setState CreatingIdentity
-    keyFpr <- liftIO newGpgKey
-    now <- liftIO $ getCurrentTime
-    liftIO $ debug "Done creating new key"
-    addIdentity "gpg" keyFpr (Just now) Nothing
-    return keyFpr
+    sem <- view psGpgCreateKeySempahore
+    st <- ask
+    void . liftIO . forkIO . runPSM st $ do
+        tid <- liftIO myThreadId
+        liftIO (atomically $ tryPutTMVar sem tid) >>= \case
+            False -> liftIO $ debug "Another thread is already creating a new key"
+            True -> do
+                setState CreatingIdentity
+                keyFpr <- liftIO newGpgKey
+                now <- liftIO $ getCurrentTime
+                liftIO $ debug "Done creating new key"
+                addIdentity "gpg" keyFpr (Just now) Nothing
+                as <- view psAccountState
+                liftIO (atomically (readTVar as)) >>= \case
+                    AccountEnabled -> setState Authenticating
+                    AccountDisabled -> setState Disabled
+                void . liftIO  . atomically $ takeTMVar sem
+                return ()
+    left Nothing
 
 setCredentialsM :: PSState -> Text -> Xmpp.Password -> MethodHandlerT IO ()
 setCredentialsM st u p = runPSM st $ do

@@ -26,10 +26,12 @@ updateState = do
     -- | If a condition that triggers a state transition is found we immediately
     -- return it with left.
     eNewState <- runEitherT $ do
+        liftIO . debug . show =<< lift getCredentials
         getCredentials `orIs` (Just CredentialsUnset)
         lift getSigningKey  >>= \case
             Nothing -> liftIO getIdentities >>= \case
-                [] -> createGpgKey
+                [] -> do createGpgKey
+                         is Nothing
                 _ -> is (Just IdentitiesAvailable)
             Just key -> do
                 ids <- liftIO getIdentities
@@ -63,6 +65,7 @@ updateState = do
 synchronousCreateGpgKey :: (MonadIO m, Functor m) =>
                           PSM (MethodHandlerT m) BS.ByteString
 synchronousCreateGpgKey = do
+    liftIO $ debug "Creating new identity"
     sem <- view psGpgCreateKeySempahore
     tid <- liftIO myThreadId
     liftIO (atomically $ tryPutTMVar sem tid) >>= \case
@@ -93,23 +96,14 @@ createGpgKey = do
         liftIO (atomically $ tryPutTMVar sem tid) >>= \case
             False -> liftIO $ debug "Another thread is already creating a new key"
             True -> do
-                setState CreatingIdentity
-                keyFpr <- liftIO newGpgKey
-                now <- liftIO $ getCurrentTime
-                liftIO $ debug "Done creating new key"
-                addIdentity "gpg" keyFpr (Just now) Nothing
-                as <- view psAccountState
-                liftIO (atomically (readTVar as)) >>= \case
-                    AccountEnabled -> setState Authenticating
-                    AccountDisabled -> setState Disabled
-                void . liftIO  . atomically $ takeTMVar sem
+
                 return ()
     left Nothing
 
 setCredentialsM :: PSState -> Text -> Xmpp.Password -> MethodHandlerT IO ()
 setCredentialsM st u p = runPSM st $ do
     case Text.splitOn "@" u of
-        [h', u'] -> do
+        [u', h'] -> do
             setCredentials h' u' p
             st <- liftIO $ runPSM st getState
             case st of
@@ -127,7 +121,20 @@ getCredentialsM st = do
                     $ MsgError "org.pontarius.Error.GetCredentials"
                                (Just $ "Credentials not set")
                                []
-     Just cred -> return $ Text.concat [cred ^. hostnameL
+     Just cred -> return $ Text.concat [cred ^. usernameL
                                        , "@"
-                                       , cred ^. usernameL
+                                       , cred ^. hostnameL
                                        ]
+
+setSigningGpgKeyM :: PSState
+                  -> KeyID
+                  -> MethodHandlerT IO ()
+setSigningGpgKeyM st keyFpr = do
+    haveKey <- liftIO $ setSigningGpgKey st keyFpr
+    case haveKey of
+        True -> lift $ runPSM st updateState
+        False -> methodError $
+                 MsgError { errorName = "org.pontarius.Error.setIdentity"
+                          , errorText = Just "No such identity"
+                          , errorBody = []
+                          }

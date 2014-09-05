@@ -52,9 +52,13 @@ addIdentity keyBackend keyID keyCreated keyImported = do
 
 setSigningKey :: MonadIO m => Text -> KeyID -> PSM m ()
 setSigningKey backend keyID = runDB $ do
+    _ <- insertUnique (PrivIdent "gpg" keyID Nothing Nothing Nothing Inactive)
     updateWhere [ PrivIdentIsDefault ==. Active] [PrivIdentIsDefault =. Inactive]
-    updateWhere [ PrivIdentKeyBackend ==. backend, PrivIdentKeyID ==. keyID]
-                [PrivIdentIsDefault =. Active]
+    updateWhere [ PrivIdentKeyBackend ==. backend
+                , PrivIdentKeyID ==. keyID
+                , PrivIdentRevoked ==. Nothing
+                ]
+                [ PrivIdentIsDefault =. Active]
     return ()
 
 getSigningKey :: MonadIO m => PSM m (Maybe PrivIdent)

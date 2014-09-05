@@ -198,6 +198,14 @@ registerAccountMethod =
                         :-> Result)
     ResultDone
 
+
+setIdentityMethod :: PSState -> Method
+setIdentityMethod st =
+    DBus.Method (DBus.repMethod $ setSigningGpgKeyM st)
+                "setIdentity"
+                ("keyID" :-> Result)
+                ResultDone
+
 sArgument :: SingI t => Text -> Proxy (t :: DBusType) -> SignalArgument
 sArgument name (Proxy :: Proxy (t :: DBusType)) =
     SignalArgument { signalArgumentName = name

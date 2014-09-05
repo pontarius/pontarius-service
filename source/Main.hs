@@ -89,9 +89,9 @@ main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
         ro = rootObject psState <> property statusProp
                                 <> property enabledProp
                                 <> property usernameProp
-    runPSM psState updateState
     con <- makeServer DBus.Session ro
     requestName "org.pontarius" def con
     manageStmProperty statusProp getStatus con
     manageStmProperty enabledProp  getEnabled con
+    runPSM psState updateState
     waitFor con

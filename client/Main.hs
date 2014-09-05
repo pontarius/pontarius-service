@@ -13,9 +13,9 @@ import           Control.Monad.Trans
 import           Control.Monad.Trans.Maybe
 import           DBus
 import           DBus.Message
-import           DBus.Signal
 import           DBus.MessageBus
 import qualified DBus.Property as DBus
+import           DBus.Signal
 import           DBus.Types
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -23,6 +23,7 @@ import           Data.Data
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
+import           Data.Monoid
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text as Text
@@ -121,11 +122,11 @@ main = do
     con <- connectBus Session (\_ _ _ -> return ())
                (\x y z -> atomically $ writeTChan sChan (x,y,z))
     let matchPropertiesSignal =
-            MatchSignal{ slotInterface = Just "org.freedesktop.DBus.Properties"
-                       , slotMember = Nothing
-                       , slotPath = Nothing
-                       , slotSender = Just "org.pontarius"
+            MatchSignal{ matchInterface = Just "org.freedesktop.DBus.Properties"
+                       , matchMember = Nothing
+                       , matchPath = Nothing
+                       , matchSender = Just "org.pontarius"
                        }
-    addSignalHandler matchPropertiesSignal print con
+    addSignalHandler matchPropertiesSignal mempty print con
     uiMain (mkMainView sChan con) keymap (return ())
     return signalChan

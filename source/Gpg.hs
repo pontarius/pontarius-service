@@ -126,7 +126,8 @@ setSigningGpgKeyM st keyFpr = do
                           , errorBody = []
                           }
 
-setSigningKeyMethod st =
+setIdentityMethod :: PSState -> Method
+setIdentityMethod st =
     DBus.Method (DBus.repMethod $ setSigningGpgKeyM st)
                 "setIdentity"
                 ("keyID" :-> Result)

@@ -274,6 +274,7 @@ xmppInterface st = Interface
                 , markKeyVerifiedMethod
                 , securityHistoryByJidMethod
                 , securityHistoryByKeyIdMethod
+                , setIdentityMethod st
                 , revokeIdentityMethod
                 , initiateChallengeMethod
                 , respondChallengeMethod

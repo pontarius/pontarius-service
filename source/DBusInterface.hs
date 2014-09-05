@@ -16,6 +16,7 @@ import           Control.Lens
 import           Control.Monad.Trans
 import           DBus as DBus
 import           DBus.Types
+import           Data.ByteString (ByteString)
 import           Data.Proxy
 import           Data.Singletons
 import           Data.String
@@ -140,7 +141,7 @@ revokeIdentityMethod =
 createIdentityMethod :: PSState -> Method
 createIdentityMethod st =
     DBus.Method
-    (DBus.repMethod $ createGpgKey st)
+    (DBus.repMethod $ (runPSM st createGpgKey :: IO ByteString))
     "createIdentity"
     Result
     ("key_id" -- key_id of the newly created key

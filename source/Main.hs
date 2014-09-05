@@ -46,7 +46,7 @@ data State = State { connection :: Xmpp.Session
                    }
 
 main :: IO ()
-main = runNoLoggingT . withSqlitePool "test.db3" 3 $ \pool -> liftIO $ do
+main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
     runResourceT $ runStderrLoggingT $ flip runSqlPool pool $
         runMigration migrateAll
     xmppConRef <- newTVarIO XmppNoConnection
@@ -89,7 +89,6 @@ main = runNoLoggingT . withSqlitePool "test.db3" 3 $ \pool -> liftIO $ do
         ro = rootObject psState <> property statusProp
                                 <> property enabledProp
                                 <> property usernameProp
-    initGPG psState
     runPSM psState updateState
     con <- makeServer DBus.Session ro
     requestName "org.pontarius" def con

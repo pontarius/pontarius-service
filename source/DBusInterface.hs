@@ -130,11 +130,11 @@ markKeyVerifiedMethod =
     (DBus.repMethod $ (stub :: KeyID -> IO () ))
     "markKeyVerified" ("key-id" :-> Result) ResultDone
 
-revokeKeymethod :: Method
-revokeKeymethod =
+revokeIdentityMethod :: Method
+revokeIdentityMethod =
     DBus.Method
-    (DBus.repMethod $ (stub ::  KeyID -> Text -> IO ()))
-    "revokeKey" ("key_id" :-> "reason" :-> Result) ResultDone
+    (DBus.repMethod $ (revokeIdentity ::  KeyID -> MethodHandlerT IO ()))
+    "revokeIdentity" ("key_id" :-> Result) ResultDone
 
 initiateChallengeMethod :: Method
 initiateChallengeMethod =
@@ -288,7 +288,7 @@ xmppInterface st = Interface
                 , markKeyVerifiedMethod
                 , securityHistoryByJidMethod
                 , securityHistoryByKeyIdMethod
-                , revokeKeymethod
+                , revokeIdentityMethod
                 , initiateChallengeMethod
                 , respondChallengeMethod
                 , getTrustStatusMethod
@@ -310,7 +310,7 @@ xmppInterface st = Interface
                 ]
                 [ SomeProperty availableEntitiesProperty
                 , SomeProperty unavailanbleEntitiesProperty
-                , SomeProperty $ signingKeyProp st
+                , SomeProperty $ identityProp st
                 ]
 
 

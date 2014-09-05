@@ -67,9 +67,12 @@ createIdentity st =
     ("key_id" -- key_id of the newly created key
      :> ResultDone)
 
-revokeIdentity keyID reason text = do
+revokeIdentity :: MonadIO m => KeyID -> MethodHandlerT m ()
+revokeIdentity keyID = do
+    let text = "" :: Text.Text
+        reason = Gpg.NoReason
     ctx <- liftIO $ Gpg.ctxNew Nothing
-    keys <- liftIO $ Gpg.findKeyBy ctx True Gpg.keyFingerprint keyID
+    keys <- liftIO $ Gpg.findKeyBy ctx True Gpg.keyFingerprint (Just keyID)
     case keys of
         [key] -> liftIO $ Gpg.revoke ctx key reason text >> return ()
         [] -> DBus.methodError $
@@ -97,20 +100,39 @@ initGPG st = do
                 [k] -> do
                     setSigningGpgKey st . fromJust  =<< Gpg.keyFingerprint k
                     debug "Found gpg key and setting it as identity"
-                _ -> runPSM st $ setState IdentityUnset
 
-setSigningGpgKey :: PSState
-                 -> KeyID
-                 -> IO Bool
+                _ -> runPSM st $ setState IdentitiesAvailable
+
 setSigningGpgKey st keyFpr = do
-    ctx <- Gpg.ctxNew Nothing
-    keys <- Gpg.getKeys ctx True
-    matches <- filterM (liftM (== Just keyFpr) . Gpg.keyFingerprint) keys
-    haveKey <- case matches of
-        [] -> return False
-        (_:_) -> return True
-    runPSM st . when haveKey $ setSigningKey "gpg" keyFpr
-    return haveKey
+        ctx <- Gpg.ctxNew Nothing
+        keys <- Gpg.getKeys ctx True
+        matches <- filterM (liftM (== Just keyFpr) . Gpg.keyFingerprint) keys
+        haveKey <- case matches of
+            [] -> return False
+            (_:_) -> return True
+        runPSM st . when haveKey $ setSigningKey "gpg" keyFpr
+        return haveKey
+
+setSigningGpgKeyM :: PSState
+                  -> KeyID
+                  -> MethodHandlerT IO ()
+setSigningGpgKeyM st keyFpr = do
+    haveKey <- liftIO $ setSigningGpgKey st keyFpr
+    case haveKey of
+        True -> return ()
+        False -> DBus.methodError $
+                 MsgError { errorName = "org.pontarius.Error.setIdentity"
+                          , errorText = Just "No such identity"
+                          , errorBody = []
+                          }
+
+setSigningKeyMethod st =
+    DBus.Method (DBus.repMethod $ setSigningGpgKeyM st)
+                "setIdentity"
+                ("keyID" :-> Result)
+                ResultDone
+
+
 
 getSigningPgpKey :: PSState -> DBus.MethodHandlerT IO KeyID
 getSigningPgpKey st = do
@@ -129,13 +151,11 @@ getSigningPgpKey st = do
                       , errorBody = []
                       }
 
-signingKeyProp :: PSState
-               -> Property ('TypeArray ('DBusSimpleType 'TypeByte))
-signingKeyProp st =
-    mkProperty pontariusObjectPath pontariusInterface "SigningKey"
-    (Just $ getSigningPgpKey st) (Just $ lift . setSigningGpgKey st)
+identityProp :: PSState -> Property ('TypeArray ('DBusSimpleType 'TypeByte))
+identityProp st =
+    mkProperty pontariusObjectPath pontariusInterface "Identity"
+    (Just $ getSigningPgpKey st) Nothing
     PECSTrue
-
 
 --setSigningKey st keyFpr
 

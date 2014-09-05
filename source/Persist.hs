@@ -115,7 +115,7 @@ updateState = do
     -- return it with left.
     eNewState <- runEitherT $ do
         getCredentials `orIs` CredentialsUnset
-        getSigningKey `orIs` IdentityUnset
+        getSigningKey `orIs` IdentitiesAvailable
         mbCon <- liftIO . atomically . readTVar =<< view psXmppCon
         case mbCon of
             XmppNoConnection -> is Disabled

@@ -38,6 +38,7 @@ import           Basic
 import           DBusInterface
 import           Gpg
 import           Persist
+import           Transactions
 import           Types
 import           Xmpp
 
@@ -79,8 +80,15 @@ main = runNoLoggingT . withSqlitePool "test.db3" 3 $ \pool -> liftIO $ do
                            return True
                          )
                          PECSTrue
+        usernameProp = mkProperty  pontariusObjectPath pontariusInterface
+                         "Username"
+                         (Just (getCredentialsM psState))
+                         Nothing
+                         PECSFalse
+
         ro = rootObject psState <> property statusProp
                                 <> property enabledProp
+                                <> property usernameProp
     initGPG psState
     runPSM psState updateState
     con <- makeServer DBus.Session ro

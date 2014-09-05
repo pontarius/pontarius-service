@@ -26,6 +26,7 @@ import qualified Network.Xmpp as Xmpp
 import           Basic
 import           Gpg
 import           Persist
+import           Transactions
 import           Types
 import           Xmpp
 
@@ -51,7 +52,7 @@ pontariusProperty name =
              , propertyPath = pontariusObjectPath
              , propertyInterface = pontariusInterface
              , propertyGet = Just stub
-             , propertySet = Just stub
+             , propertySet = Nothing
              , propertyEmitsChangedSignal = PECSTrue
              }
 ----------------------------------------------------
@@ -135,6 +136,16 @@ revokeIdentityMethod =
     DBus.Method
     (DBus.repMethod $ (revokeIdentity ::  KeyID -> MethodHandlerT IO ()))
     "revokeIdentity" ("key_id" :-> Result) ResultDone
+
+createIdentityMethod :: PSState -> Method
+createIdentityMethod st =
+    DBus.Method
+    (DBus.repMethod $ createGpgKey st)
+    "createIdentity"
+    Result
+    ("key_id" -- key_id of the newly created key
+     :> ResultDone)
+
 
 initiateChallengeMethod :: Method
 initiateChallengeMethod =
@@ -269,7 +280,7 @@ unavailanbleEntitiesProperty = pontariusProperty "UnvailableEntities"
 xmppInterface :: PSState -> Interface
 xmppInterface st = Interface
                 [ importKeyMethod
-                , createIdentity st
+                , createIdentityMethod st
                 , initializeMethod st
                 , markKeyVerifiedMethod
                 , securityHistoryByJidMethod

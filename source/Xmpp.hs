@@ -1,6 +1,8 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE MultiWayIf #-}
 module Xmpp where
 
 import           Control.Applicative
@@ -15,17 +17,20 @@ import           DBus.Signal
 import           DBus.Types
 import           Data.Data
 import           Data.Map (Map)
-
 import qualified Data.Map as Map
+import           Data.Maybe
+import           Data.Monoid
 import           Data.Text (Text)
 import qualified Data.Text as Text
-
-
+import qualified Network.TLS as TLS
 import qualified Network.Xmpp as Xmpp
+import qualified Network.Xmpp.E2E as E2E
 import qualified Network.Xmpp.IM as Xmpp
 import           Persist
-import           Types
+
 import           Basic
+import           Gpg
+import           Types
 
 data XmppConnectionUpdate = NowConnected
                           | ConnectionLost
@@ -44,12 +49,15 @@ tShow = Text.pack . show
 signalConnectionState :: XmppConnectionUpdate -> PSM IO ()
 signalConnectionState _newState = return ()
 
+xmppError :: MonadIO m => Text -> m a
+xmppError = liftIO . Ex.throwIO . ConnectionError
+
 -- | Make a single attempt to connect to the xmpp server
 --
 -- N.B.: Certain conditions may lead to a change of the current state.  The
 -- change of state automatically sends an updating dbus signal and may block the
 -- following connection attempts
-tryConnect :: MonadIO m => PSState -> m Xmpp.Session
+tryConnect :: MonadIO m => PSState -> m (Xmpp.Session, E2E.E2EContext)
 tryConnect st = runPSM st $ do
     mbCredentials <- getCredentials
     case mbCredentials of
@@ -59,9 +67,28 @@ tryConnect st = runPSM st $ do
                 password = hostCredentialsPassword cred
             debug $ "Trying to connect to " ++ show hostname
                                         ++ " as " ++ show username
+            mbKid <- getSigningKey
+            kid <- case mbKid of
+                Nothing -> xmppError "No signing key set"
+                Just pid -> if | isJust (privIdentRevoked pid)
+                                   -> xmppError "signing key is revoked"
+                               | privIdentKeyBackend pid /= "gpg"
+                                   -> xmppError $ "unknown key backend: "
+                                        <> privIdentKeyBackend pid
+                               | otherwise -> return $ privIdentKeyID pid
+            (e2ectx, e2eplugin) <-
+                liftIO $ E2E.e2eInit (E2E.E2EG E2E.e2eDefaultParameters
+                                      (E2E.PubKey "gpg" kid))
+                                      (\_ -> return $ Just True)
+                                      (\x -> return (fromMaybe "" x)) -- TODO
+                                      (signGPG kid)
+                                      verifyGPG
             mbSess <- liftIO $ Xmpp.session hostname
                           (Xmpp.simpleAuth username password)
-                          (def & Xmpp.tlsUseNameIndicationL .~ False)
+                          (def & Xmpp.tlsUseNameIndicationL .~ True
+                               & osc .~ (\_ _ _ _ -> return [])
+                               & Xmpp.pluginsL .~ [e2eplugin]
+                          )
             case mbSess of
                 Left e -> do
                     case e of
@@ -71,17 +98,24 @@ tryConnect st = runPSM st $ do
                        _ -> liftIO . Ex.throwIO $  ConnectionError (tShow e)
 
                 Right r -> do
+                    _ <- liftIO $ Xmpp.sendPresence Xmpp.presenceOnline r
                     setState Authenticated
-                    return r
+                    return (r, e2ectx)
         Nothing -> do
             setState CredentialsUnset
             liftIO . Ex.throwIO $
                 ConnectionError "Connection credentials are unset."
+  where
+    clientHooksL = lens TLS.clientHooks (\cp ch -> cp{TLS.clientHooks = ch})
+    onServerCertificateL = lens TLS.onServerCertificate
+                                (\ch osc-> ch {TLS.onServerCertificate = osc})
+    osc = Xmpp.streamConfigurationL . Xmpp.tlsParamsL
+            . clientHooksL . onServerCertificateL
 
 -- | Try to establish a connection to the server. If the connection fails
 -- another attempt is made after a (exponentially increasing) grace period. This
 -- function blocks until pre-conditions are met
-connector :: Integer -> PSState -> IO (Xmpp.Session, [ThreadId])
+connector :: Integer -> PSState -> IO (Xmpp.Session, E2E.E2EContext,  [ThreadId])
 connector d st = do
     let pst = st ^. psState
         as = st ^. psAccountState
@@ -112,7 +146,7 @@ connector d st = do
                 -- avoid hammering the server, delay for a certain amount of
                 -- seconds
             connector (nextDelay d) st
-        Right sess -> do
+        Right (sess, e2eCtx) -> do
             sess' <- Xmpp.dupSession sess
             subscriptions <- forkIO $ do
                 st <- Xmpp.waitForPresence ((== Xmpp.Subscribe )
@@ -124,7 +158,7 @@ connector d st = do
                                  , signalBody = [DBV $ toRep fr]
                                  }
                 emitSignal sig con
-            return (sess, [subscriptions])
+            return (sess, e2eCtx, [subscriptions])
 
   where
     -- Exponential back-off, we double the retry delay each time up to a total
@@ -139,7 +173,7 @@ enableXmpp = do
     c <- liftIO . atomically $ readTVar xc
     case c of
         XmppConnecting _ -> return ()
-        XmppConnected _ _ -> return ()
+        XmppConnected{} -> return ()
         XmppNoConnection -> void . liftIO .  forkIO $ do
             tid <- myThreadId
             -- | To avoid a race condition where multiple connection threads are
@@ -155,8 +189,8 @@ enableXmpp = do
             case run of
                  False -> return ()
                  True -> do
-                     (sess, threads) <- connector 0 st
-                     atomically . writeTVar xc $ XmppConnected sess threads
+                     (sess, e2eCtx, threads) <- connector 0 st
+                     atomically . writeTVar xc $ XmppConnected sess e2eCtx threads
 
 enableAccount :: (Functor m, MonadIO m) => PSM (MethodHandlerT m) ()
 enableAccount = do
@@ -178,22 +212,90 @@ disableAccount = do
         readTVar xmppRef
     case mbXmppSess of
         XmppConnecting tid -> liftIO $ killThread tid
-        XmppConnected con threads -> do
+        XmppConnected con _ threads -> do
             liftIO $ disconnect con
             liftIO . forM_ threads $ killThread
         XmppNoConnection -> return ()
     liftIO  . atomically $ writeTVar xmppRef XmppNoConnection
 
 
-getXmppRoster :: PSM (MethodHandlerT IO) (Map Xmpp.Jid Xmpp.Item)
-getXmppRoster = do
+getSession :: PSM (MethodHandlerT IO) Xmpp.Session
+getSession = do
     xc <- view psXmppCon
     c <- liftIO . atomically $ readTVar xc
     case c of
-        XmppConnected sess _ -> Xmpp.items <$> liftIO (Xmpp.getRoster sess)
-        _ -> lift $ methodError $ MsgError "org.pontarius.Error.getRoster"
+        XmppConnected sess _ _ -> return sess
+        _ -> lift $ methodError $ MsgError "org.pontarius.Error.Xmpp"
+                                      (Just $ "Not connected")
+                                      []
+getE2EContext :: PSM (MethodHandlerT IO) E2E.E2EContext
+getE2EContext = do
+    xc <- view psXmppCon
+    c <- liftIO . atomically $ readTVar xc
+    case c of
+        XmppConnected _ ctx _ -> return ctx
+        _ -> lift $ methodError $ MsgError "org.pontarius.Error.Xmpp"
                                       (Just $ "Not connected")
                                       []
 
-getPeers :: PSM (MethodHandlerT IO) [Xmpp.Jid]
-getPeers = map Xmpp.riJid . filter Xmpp.riApproved . Map.elems <$> getXmppRoster
+getSessionSTM :: PSState -> STM Xmpp.Session
+getSessionSTM st = do
+    c <- readTVar (st ^. psXmppCon)
+    case c of
+        XmppConnected sess _ _ -> return sess
+        _ -> retry
+
+
+getXmppRoster :: PSM (MethodHandlerT IO) (Map Xmpp.Jid Xmpp.Item)
+getXmppRoster = do
+    sess <- getSession
+    Xmpp.items <$> liftIO (Xmpp.getRoster sess)
+
+getPeers :: PSM (MethodHandlerT IO) [(Xmpp.Jid, Bool)]
+getPeers = do
+    sess <- getSession
+    jids <- map Xmpp.riJid . filter ((== Xmpp.Both) . Xmpp.riSubscription)
+           . Map.elems <$> getXmppRoster
+    liftIO . atomically $ forM jids $ \j -> (j,) <$> Xmpp.isPeerAvailable j sess
+
+
+subscribe :: Xmpp.Jid -> PSM (MethodHandlerT IO) (Either Xmpp.XmppFailure ())
+subscribe peer = do
+    sess <- getSession
+    liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribe peer) sess
+
+acceptSubscription :: Xmpp.Jid -> PSM (MethodHandlerT IO) (Either Xmpp.XmppFailure ())
+acceptSubscription peer = do
+    sess <- getSession
+    liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribed peer) sess
+
+addPeer :: Xmpp.Jid -> PSM (MethodHandlerT IO) ()
+addPeer peer = do
+    -- TODO: be more precise here. We have to check that the server supports
+    -- pre-approval
+    sess <- getSession
+    _ <- liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribe peer) sess
+    _ <- liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribed peer) sess
+    return ()
+
+removePeer :: Xmpp.Jid -> PSM (MethodHandlerT IO) ()
+removePeer peer = do
+    sess <- getSession
+    _ <- liftIO $ Xmpp.sendPresence (Xmpp.presenceUnsubscribed peer) sess
+    _ <- liftIO $ Xmpp.sendPresence (Xmpp.presenceUnsubscribe peer) sess
+    return ()
+
+getAvailableXmppPeers :: PSM (MethodHandlerT IO) [Xmpp.Jid]
+getAvailableXmppPeers = do
+    sess <- getSession
+    liftIO . atomically $ Xmpp.getAvailablePeers sess
+
+getAvailableXmppPeersSTM :: PSState -> STM [Xmpp.Jid]
+getAvailableXmppPeersSTM st = do
+    sess <- getSessionSTM st
+    Xmpp.getAvailablePeers sess
+
+startAKE :: Xmpp.Jid -> PSM (MethodHandlerT IO) Bool
+startAKE j = do
+    e2eCtx <- getE2EContext
+    liftIO $ E2E.startE2E j e2eCtx (debug . show)

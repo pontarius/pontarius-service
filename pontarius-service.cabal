@@ -44,12 +44,14 @@ executable pontarius-service
                , persistent-template
                , pontarius-gpg
                , pontarius-xmpp
+               , pontarius-xmpp-e2e
                , resourcet >= 1.1.2.2
                , singletons >= 1.0
                , stm
                , template-haskell
                , text
                , time
+               , tls
                , transformers >= 0.4
                , unbounded-delays >= 0.1.0.8
                , uuid

@@ -12,8 +12,10 @@ import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Resource
 import           DBus
+import           DBus.Introspect (introspect)
 import           DBus.Property
 import           Data.Monoid
+import qualified Data.Text.IO as Text
 import           Database.Persist.Sqlite
 import qualified Network.Xmpp as Xmpp
 import           System.Exit
@@ -78,10 +80,16 @@ main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
                          (Just $ runPSM psState getPeers)
                          Nothing
                          PECSFalse -- TODO
+        availableEntitiesProp = mkProperty pontariusObjectPath pontariusInterface
+                         "AvailableEntities"
+                         (Just $ runPSM psState getAvailableXmppPeers)
+                         Nothing
+                         PECSTrue
         ro = rootObject psState <> property statusProp
                                 <> property enabledProp
                                 <> property usernameProp
                                 <> property peersProp
+                                <> property availableEntitiesProp
     con <- makeServer DBus.Session ro
     atomically $ putTMVar conRef con
     requestName "org.pontarius" def con >>= liftIO . \case
@@ -96,6 +104,7 @@ main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
             debug "dbus server reports \"already owner\"?!?"
     manageStmProperty statusProp getStatus con
     manageStmProperty enabledProp  getEnabled con
+    manageStmProperty availableEntitiesProp (getAvailableXmppPeersSTM psState) con
     debug "updateing state"
     runPSM psState updateState
     debug "done updating state"

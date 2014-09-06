@@ -27,6 +27,8 @@ import           Data.Time.Clock.POSIX as Time
 import           Data.Typeable
 import           Database.Persist.Sqlite
 import qualified Network.Xmpp as Xmpp
+import qualified Network.Xmpp.E2E as Xmpp
+
 
 data PontariusState = CredentialsUnset
                     | IdentityNotFound
@@ -58,12 +60,12 @@ data PSProperties = PSProperties{ _pspConnectionStatus :: Property (RepType Bool
 -- | When requesting a new connection we fork a new thread that creates the
 -- connection and sets it's own threadID so it can be aborted when required
 data XmppState = XmppConnecting ThreadId
-               | XmppConnected  Xmpp.Session [ThreadId]
+               | XmppConnected  Xmpp.Session Xmpp.E2EContext [ThreadId]
                | XmppNoConnection
 
 instance Show XmppState where
     show (XmppConnecting tid) = "<Connecting, thread = " ++ show tid ++ " >"
-    show (XmppConnected _ _) = "Connected"
+    show XmppConnected{} = "Connected"
     show XmppNoConnection = "Disconnected"
 
 data PSState = PSState { _psDB :: ConnectionPool

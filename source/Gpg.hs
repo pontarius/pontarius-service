@@ -8,6 +8,7 @@
 module Gpg where
 
 import           Control.Applicative
+import qualified Control.Exception as Ex
 import           Control.Monad
 import           Control.Monad.Reader
 import           DBus
@@ -18,6 +19,7 @@ import           Data.Maybe
 import           Data.Monoid
 import           Data.Text (Text)
 import qualified GpgMe as Gpg
+import           System.Log.Logger
 
 --import           Network.Xmpp.E2E
 
@@ -185,40 +187,41 @@ getIdentitiesMethod  =
 --         "gpg" -> signGPG kid bs
 --         _ -> error "unknown signing key type"
 
--- signGPG :: MonadIO m =>
---            BS.ByteString
---         -> BS.ByteString
---         -> m BS.ByteString
--- signGPG kid bs = liftIO $ do
---     ctx <- Gpg.ctxNew Nothing
---     keys <- Gpg.getKeys ctx True
---     matches <- filterM (liftM (== Just kid) . Gpg.keyFingerprint) keys
---     case matches of
---         [] -> error "key does not exist" -- return Nothing
---         (p:_) -> do
---             sig <- Gpg.sign ctx bs p Gpg.SigModeDetach
---             debugM "Pontarius.Xmpp" $ "Signing " ++ show bs
---                                       ++ " yielded " ++ show sig
---             return sig
+signGPG :: MonadIO m =>
+           BS.ByteString
+        -> BS.ByteString
+        -> m BS.ByteString
+signGPG kid bs = liftIO $ do
+    ctx <- Gpg.ctxNew Nothing
+    keys <- Gpg.getKeys ctx True
+    matches <- filterM (liftM (== Just kid) . Gpg.keyFingerprint) keys
+    case matches of
+        [] -> error "key does not exist" -- return Nothing
+        (p:_) -> do
+            sig <- Gpg.sign ctx bs p Gpg.SigModeDetach
+            debug$ "Signing " ++ show bs ++ " yielded " ++ show sig
+            return sig
 
--- verifyGPG _ sig txt = do
---     ctx <- Gpg.ctxNew Nothing
---     debugM "Pontarius.Xmpp" $
---         "Verifying signature "  ++ show sig ++ " for " ++ show txt
---     res <- Ex.try $ Gpg.verifyDetach ctx txt sig
---     case res of
---         Left (e :: Ex.SomeException) -> do
---             errorM "Pontarius.Xmpp"
---                 $ "Verifying signature threw exception" ++ show e
---             return False
-
---         Right Gpg.SigStatGood -> do
---             infoM "Pontarius.Xmpp" "Signature seems good."
---             return True
---         Right stat -> do
---             warningM "Pontarius.Xmpp" $ "Signature problem: " ++ show stat
---             return False
-
+verifyGPG :: t -> ByteString -> ByteString -> IO Bool
+verifyGPG _ sig txt = do
+    ctx <- Gpg.ctxNew Nothing
+    debugM "Pontarius.Xmpp" $
+        "Verifying signature "  ++ show sig ++ " for " ++ show txt
+    res <- Ex.try $ Gpg.verifyDetach ctx txt sig
+    case res of
+        Left (e :: Gpg.Error) -> do
+            errorM "Pontarius.Xmpp"
+                $ "Verifying signature threw exception" ++ show e
+            return False
+        Right res | all (goodStat . Gpg.status) res -> do
+            infoM "Pontarius.Xmpp" "Signature seems good."
+            return True
+                  | otherwise -> do
+            warningM "Pontarius.Xmpp" $ "Signature problem: " ++ show res
+            return False
+  where
+    goodStat Gpg.SigStatGood = True
+    goodStat _ = False
 -- ----------------------------------------
 -- -- pubkeys -----------------------------
 -- ----------------------------------------

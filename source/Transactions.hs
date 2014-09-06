@@ -41,7 +41,7 @@ updateState = do
         case mbCon of
             XmppNoConnection -> is (Just Disabled)
             XmppConnecting _ -> is (Just Authenticating)
-            XmppConnected con _ -> do
+            XmppConnected con _ _ -> do
                 sstate <- liftIO . atomically $ Xmpp.streamState con
                 case sstate of
                     Xmpp.Plain -> is (Just Authenticating)

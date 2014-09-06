@@ -28,6 +28,7 @@ import           Basic
 import           Gpg
 import           Transactions
 import           Types
+import           Xmpp
 
 data Stub = Stub deriving (Show, Typeable)
 
@@ -174,18 +175,19 @@ getEntityPubkeyMethod =
     "getEntityPubkey" ("entity" :-> Result)
     "key_id"
 
-addPeerMethod :: Method
-addPeerMethod =
+addPeerMethod :: PSState -> Method
+addPeerMethod st =
     DBus.Method
-    (DBus.repMethod $ (stub :: Xmpp.Jid -> Text -> IO ()))
-    "addPeer" ("jid" :-> "name" :-> Result)
+    (DBus.repMethod $ runPSM st . addPeer)
+    "addPeer" ("jid" :-> Result)
     ResultDone
 
-removePeerMethod :: Method
-removePeerMethod =
+removePeerMethod :: PSState -> Method
+removePeerMethod st =
     DBus.Method
-    (DBus.repMethod $ (stub :: Xmpp.Jid -> IO ()))
-    "removePeer" ("entity" :-> Result)
+    (DBus.repMethod $ (runPSM st . removePeer
+                       :: Xmpp.Jid -> MethodHandlerT IO ()))
+    "removePeer" ("peer" :-> Result)
     ResultDone
 
 registerAccountMethod :: Method
@@ -195,7 +197,6 @@ registerAccountMethod =
     "registerAccount" ("server" :-> "username" :-> "password"
                         :-> Result)
     ResultDone
-
 
 setIdentityMethod :: PSState -> Method
 setIdentityMethod st =
@@ -209,6 +210,12 @@ sArgument name (Proxy :: Proxy (t :: DBusType)) =
     SignalArgument { signalArgumentName = name
                    , signalArgumentType = fromSing (sing :: Sing t)
                    }
+
+startAKEMethod :: PSState -> Method
+startAKEMethod st = Method (DBus.repMethod $ runPSM st . startAKE)
+                    "startAKE"
+                    ("peer" :-> Result)
+                    ("success" :> ResultDone)
 
 receivedChallengeSignal :: SignalInterface
 receivedChallengeSignal = SignalI { signalName = "receivedChallenge"
@@ -281,9 +288,6 @@ subscriptionRequestSignal = SignalI { signalName = "subscriptionRequest"
                                     , signalAnnotations = []
                                     }
 
-availableEntitiesProperty :: Property (RepType [Ent])
-availableEntitiesProperty = pontariusProperty "AvailableEntities"
-
 unavailanbleEntitiesProperty :: Property (RepType [Ent])
 unavailanbleEntitiesProperty = pontariusProperty "UnvailableEntities"
 
@@ -307,12 +311,13 @@ xmppInterface st = Interface
                 , respondChallengeMethod
                 , getTrustStatusMethod
                 , getEntityPubkeyMethod
-                , addPeerMethod
-                , removePeerMethod
+                , addPeerMethod st
+                , removePeerMethod st
                 , registerAccountMethod
                 , getIdentitiesMethod
                 , setCredentialsMethod st
                 , getCredentialsMethod st
+                , startAKEMethod st
                 ] []
                 [ receivedChallengeSignal
                 , challengeResultSignal
@@ -321,8 +326,7 @@ xmppInterface st = Interface
                 , peerTrustStatusChangeSignal
                 , subscriptionRequestSignal
                 ]
-                [ SomeProperty availableEntitiesProperty
-                , SomeProperty unavailanbleEntitiesProperty
+                [ SomeProperty unavailanbleEntitiesProperty
                 , SomeProperty $ identityProp st
                 ]
 

@@ -36,7 +36,7 @@ import           System.Environment
 import           System.Exit
 import           System.IO
 
-import           DBusInterface
+import           DBusInterface hiding (set)
 import           Types
 
 keymap = Map.empty
@@ -108,14 +108,37 @@ settingsPage con =  withVBoxNew $ do
     withFrame (Just "credentials") $ credentials con
     withFrame (Just "identity") $ identity con
 
-actionsPage con = do
+actionsPage con = withVBoxNew $ do
     timedButton "initialize" 250000 $ do
         res <- liftIO $ (initialize con :: IO (Either MethodError PontariusState))
         logToWindow $ show res
+    timedButton "quit" 250000 $ liftIO $  (quit con :: IO (Either MethodError ()))
+                                          >> return ()
+    timedButton "enable" 250000 . liftIO $
+        (throwME $ DBus.setProperty accountEnabledP True con :: IO ())
+    timedButton "disable" 250000 . liftIO $
+        (throwME $ DBus.setProperty accountEnabledP False con :: IO ())
+
+
+identitiesPage con = withVBoxNew $ do
+    (siLabel, _) <- withHBoxNew $ do
+        addLabel (Just "selected identity")
+        addLabel (Just "<identity>")
+    (store, treeView) <- packGrow $  withTreeViewListStore (do
+        keyC <- addColumn "key" [ textRenderer (return . show) ]
+        lift $ set keyC [treeViewColumnExpand := True])
+                         (\id -> throwME (setIdentity id con) :: IO ())
+    timedButton "getKeys" 500000 . liftIO $ do
+        ids <- (throwME $ getIdentities con) :: IO [ByteString]
+        id <-  DBus.getProperty identityP con
+                    :: IO (Either MethodError ByteString)
+        setListStore store ids
+        labelSetText siLabel (either (const $ "no identity set") show id)
 
 mkMainView signalChan con = fmap (toWidget . snd) . withNotebook $ do
     addPage "settings" (settingsPage con)
     addPage "actions" $ actionsPage con
+    addPage "identities" $ identitiesPage con
 
 main = do
     sChan <- newTChanIO

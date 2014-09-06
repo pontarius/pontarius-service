@@ -76,6 +76,7 @@ executable client
                      , lens
                      , persistent-sqlite
                      , pontarius-xmpp
+                     , pontarius-xmpp-e2e
                      , template-haskell
                      , time
 --                     , pontarius-xmpp-e2e

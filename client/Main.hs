@@ -41,11 +41,11 @@ import           Types
 
 keymap = Map.empty
 
-
 data Timeout = Timeout deriving (Show, Eq, Typeable)
 
 instance Ex.Exception Timeout
 
+timedButton :: Text -> Integer -> ReaderT ReaderState IO a -> MkGUI c Button
 timedButton name t m = addButton name $ do
     st <- ask
     res <- liftIO . Ex.try . timeout t $ runReaderT m st
@@ -53,6 +53,17 @@ timedButton name t m = addButton name $ do
         Left e -> logToWindow $ "DBusError: " ++ show (e :: MethodError)
         Right Nothing -> logToWindow "Button press resulted in timeout."
         (Right (Just _)) -> return ()
+
+performer  :: (ContainerClass c) =>
+              Text
+           -> (Text -> ReaderT ReaderState IO a)
+           -> MkGUI c ((Button, HBox), Frame)
+performer name m = withFrame (Just name) $ withHBoxNew $ do
+    ent <- packGrow addEntry
+    timedButton "execute" 250000 $ do
+        txt <- liftIO $ entryGetText ent
+        m txt
+
 
 throwME :: IO (Either MethodError a) -> IO a
 throwME m = do
@@ -104,30 +115,27 @@ textProperty label property con = withHBoxNew $ do
             Right v -> liftIO $ entrySetText input (Text.unpack v)
     return ()
 
-settingsPage con =  withVBoxNew $ do
+connectionPage con =  withVBoxNew $ do
     withFrame (Just "credentials") $ credentials con
     withFrame (Just "identity") $ identity con
-
-actionsPage con = withVBoxNew $ do
-    timedButton "initialize" 250000 $ do
-        res <- liftIO $ (initialize con :: IO (Either MethodError PontariusState))
-        logToWindow $ show res
-    timedButton "quit" 250000 $ liftIO $  (quit con :: IO (Either MethodError ()))
-                                          >> return ()
-    timedButton "enable" 250000 . liftIO $
-        (throwME $ DBus.setProperty accountEnabledP True con :: IO ())
-    timedButton "disable" 250000 . liftIO $
-        (throwME $ DBus.setProperty accountEnabledP False con :: IO ())
-
+    withFrame (Just "actions") $ withHBoxNew$  do
+        timedButton "initialize" 250000 $ do
+            res <- liftIO $ (initialize con
+                             :: IO (Either MethodError PontariusState))
+            logToWindow $ show res
+        timedButton "enable" 250000 . liftIO $
+            (throwME $ DBus.setProperty accountEnabledP True con :: IO ())
+        timedButton "disable" 250000 . liftIO $
+            (throwME $ DBus.setProperty accountEnabledP False con :: IO ())
 
 identitiesPage con = withVBoxNew $ do
     (siLabel, _) <- withHBoxNew $ do
         addLabel (Just "selected identity")
         addLabel (Just "<identity>")
-    (store, treeView) <- packGrow $  withTreeViewListStore (do
+    (store, treeView) <- packGrow $ withTreeViewListStore (do
         keyC <- addColumn "key" [ textRenderer (return . show) ]
         lift $ set keyC [treeViewColumnExpand := True])
-                         (\id -> throwME (setIdentity id con) :: IO ())
+                         (\id -> liftIO (throwME (setIdentity id con) :: IO ()))
     timedButton "getKeys" 500000 . liftIO $ do
         ids <- (throwME $ getIdentities con) :: IO [ByteString]
         id <-  DBus.getProperty identityP con
@@ -135,10 +143,33 @@ identitiesPage con = withVBoxNew $ do
         setListStore store ids
         labelSetText siLabel (either (const $ "no identity set") show id)
 
+listView colName action =
+    withTreeViewListStore
+        (do col <- addColumn colName [ textRenderer (return . show) ]
+            lift $ set col [treeViewColumnExpand := True])
+        action
+
+peersPage con = withVBoxNew $ do
+    (store, view) <- packGrow $ listView "peer" (\id -> return ())
+    timedButton "get peers" 250000 $ do
+        ps <- liftIO (throwME $ DBus.getProperty peersP con :: IO [(Text, Bool)])
+        liftIO $ setListStore store ps
+    packRepel $ performer "add peer" $ \peer -> do
+        liftIO (throwME $ addPeer peer con :: IO ())
+    packRepel $ performer "remove peer" $ \peer -> do
+        liftIO (throwME $ removePeer peer con :: IO ())
+    (store, view) <- packGrow $ listView "peer"
+                     (\id -> liftIO (throwME $ startAKE id con :: IO Bool)
+                                      >>= logToWindow . show )
+    timedButton "get available peers" 250000 $ do
+        ps <- liftIO (throwME $ DBus.getProperty availableEntitiesP con :: IO [Text])
+        liftIO $ setListStore store ps
+
+
 mkMainView signalChan con = fmap (toWidget . snd) . withNotebook $ do
-    addPage "settings" (settingsPage con)
-    addPage "actions" $ actionsPage con
+    addPage "connection" $ connectionPage con
     addPage "identities" $ identitiesPage con
+    addPage "peers" $ peersPage con
 
 main = do
     sChan <- newTChanIO

@@ -213,8 +213,8 @@ signGPG kid bs = liftIO $ do
             debug$ "Signing " ++ show bs ++ " yielded " ++ show sig
             return sig
 
-verifyGPG :: t -> ByteString -> ByteString -> IO Bool
-verifyGPG _ sig txt = do
+verifyGPG :: ByteString -> ByteString -> ByteString -> IO Bool
+verifyGPG kid sig txt = do
     ctx <- Gpg.ctxNew Nothing
     debugM "Pontarius.Xmpp" $
         "Verifying signature "  ++ show sig ++ " for " ++ show txt

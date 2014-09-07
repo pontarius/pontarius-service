@@ -154,3 +154,8 @@ instance (MonadTrans t, MonadReader DBusConnection (t IO)) => Signaling (t IO) w
     signals s = do
         dbc <- ask
         lift $ emitSignal s dbc
+
+getDBusCon :: MonadIO m => PSM m (DBusConnection)
+getDBusCon = do
+    st <- PSM ask
+    liftIO . atomically $ readTMVar $ st ^. psDBusConnection

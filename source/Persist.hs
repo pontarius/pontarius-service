@@ -65,6 +65,35 @@ getSigningKey :: MonadIO m => PSM m (Maybe PrivIdent)
 getSigningKey = runDB $ do
     fmap entityVal <$> getBy (UniqueDefaultKey Active)
 
+addPubIdent :: MonadIO m => KeyID -> PSM m ()
+addPubIdent keyID = do
+    now <- liftIO $ getCurrentTime
+    _ <- runDB $ insertUnique (PubIdent "gpg" keyID Nothing Nothing now (Just now))
+    return ()
+
+associatePubIdent :: MonadIO m => Xmpp.Jid -> KeyID -> PSM m Bool
+associatePubIdent peer keyID = runDB $ do
+    mbKey <- getBy $ UniquePubIdentKey keyID
+    case mbKey of
+        Nothing -> return False
+        Just key -> do
+            _ <- upsert (PeerPubIdent peer (entityKey key)) []
+            return True
+
+getPeerIdent :: MonadIO m => Xmpp.Jid -> PSM m (Maybe KeyID)
+getPeerIdent peer = runDB $ do
+    mbKey <- getBy $ UniquePeerPubIdent peer
+    case mbKey of
+        Nothing -> return Nothing
+        Just pubIdent -> do
+            mbPubIdent <- get (peerPubIdentIdent $ entityVal pubIdent)
+            case mbPubIdent of
+                Nothing -> return Nothing
+                Just pi | Nothing <- pubIdentRevoked pi
+                                -> return . Just $ pubIdentKeyID pi
+                        | otherwise -> return Nothing
+
+
 runDB :: MonadIO m => SqlPersistT (LoggingT (ResourceT IO)) b -> PSM m b
 runDB f = do
     dbPool <- PSM $ view psDB

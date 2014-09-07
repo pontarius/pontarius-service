@@ -18,6 +18,7 @@ import qualified Data.ByteString as BS
 import           Data.Maybe
 import           Data.Monoid
 import           Data.Text (Text)
+import qualified Data.Text.Encoding as Text
 import qualified GpgMe as Gpg
 import           System.Log.Logger
 
@@ -50,12 +51,19 @@ newGpgKey = do
                    Gpg.genKey ctx (mkKeyRSA $ pontariusKeyName)
     return kid
 
+fromKeyID :: KeyID -> BS.ByteString
+fromKeyID = Text.encodeUtf8
+
+toKeyID :: BS.ByteString -> KeyID
+toKeyID = Text.decodeUtf8
+
 revokeIdentity :: MonadIO m => KeyID -> MethodHandlerT m ()
 revokeIdentity keyID = do
     let text = "" :: Text
         reason = Gpg.NoReason
     ctx <- liftIO $ Gpg.ctxNew Nothing
-    keys <- liftIO $ Gpg.findKeyBy ctx True Gpg.keyFingerprint (Just keyID)
+    keys <- liftIO $ Gpg.findKeyBy ctx True Gpg.keyFingerprint
+              (Just $ fromKeyID keyID)
     case keys of
         [key] -> liftIO $ Gpg.revoke ctx key reason text >> return ()
         [] -> DBus.methodError $
@@ -70,16 +78,17 @@ revokeIdentity keyID = do
                            }
     return ()
 
-setSigningGpgKey :: PSState -> ByteString -> IO Bool
-setSigningGpgKey st keyFpr = do
-        ctx <- Gpg.ctxNew Nothing
-        keys <- Gpg.getKeys ctx True
-        matches <- filterM (liftM (== Just keyFpr) . Gpg.keyFingerprint) keys
-        haveKey <- case matches of
-            [] -> return False
-            (_:_) -> return True
-        runPSM st . when haveKey $ setSigningKey "gpg" keyFpr
-        return haveKey
+setSigningGpgKey :: PSState -> KeyID -> IO Bool
+setSigningGpgKey st keyID = do
+    let keyFpr = fromKeyID keyID
+    ctx <- Gpg.ctxNew Nothing
+    keys <- Gpg.getKeys ctx True
+    matches <- filterM (liftM (== Just keyFpr) . Gpg.keyFingerprint) keys
+    haveKey <- case matches of
+        [] -> return False
+        (_:_) -> return True
+    runPSM st . when haveKey $ setSigningKey "gpg" (toKeyID keyFpr)
+    return haveKey
 
 
 getSigningPgpKey :: PSState -> DBus.MethodHandlerT IO KeyID
@@ -100,7 +109,7 @@ getSigningPgpKey st = do
                       , errorBody = []
                       }
 
-identityProp :: PSState -> Property ('TypeArray ('DBusSimpleType 'TypeByte))
+identityProp :: PSState -> Property ('DBusSimpleType 'TypeString)
 identityProp st =
     mkProperty pontariusObjectPath pontariusInterface "Identity"
     (Just $ getSigningPgpKey st) Nothing
@@ -112,7 +121,7 @@ getIdentities :: IO [KeyID]
 getIdentities = do
     ctx <- Gpg.ctxNew Nothing
     keys <- Gpg.getKeys ctx True
-    catMaybes <$> mapM Gpg.keyFingerprint keys
+    map toKeyID . catMaybes <$> mapM Gpg.keyFingerprint keys
 
 -- |  Get all available private keys
 getIdentitiesMethod :: Method
@@ -158,7 +167,7 @@ exportSigningGpgKey st = do
     mbKey <- runPSM st getSigningKey
     case mbKey of
         Just key | privIdentKeyBackend key == "gpg" -> do
-            let kid = privIdentKeyID key
+            let kid = fromKeyID $ privIdentKeyID key
             ctx <- Gpg.ctxNew Nothing
             keys <- Gpg.getKeys ctx True
             candidates <- filterM (\k -> (== Just kid) <$> Gpg.keyFingerprint k) keys

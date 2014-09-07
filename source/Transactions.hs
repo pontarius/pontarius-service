@@ -77,7 +77,7 @@ synchronousCreateGpgKey = do
             keyFpr <- liftIO newGpgKey
             now <- liftIO $ getCurrentTime
             liftIO $ debug "Done creating new key"
-            addIdentity "gpg" keyFpr (Just now) Nothing
+            addIdentity "gpg" (toKeyID keyFpr) (Just now) Nothing
             as <- view psAccountState
             liftIO (atomically (readTVar as)) >>= \case
                 AccountEnabled -> setState Authenticating

@@ -91,10 +91,10 @@ tryConnect st = runPSM st $ do
                                | otherwise -> return $ privIdentKeyID pid
             (e2ectx, e2eplugin) <-
                 liftIO $ E2E.e2eInit (E2E.E2EG E2E.e2eDefaultParameters
-                                      (E2E.PubKey "gpg" kid))
+                                      (E2E.PubKey "gpg" (fromKeyID kid)))
                                       (\_ -> return $ Just True)
                                       (\x -> return (fromMaybe "" x)) -- TODO
-                                      (signGPG kid)
+                                      (signGPG (fromKeyID kid))
                                       verifyGPG
             mbSess <- liftIO $ Xmpp.session hostname
                           (Xmpp.simpleAuth username password)

@@ -31,7 +31,7 @@
     <interface name="org.pontarius">
       <method name="importKey">
         <arg name="location" type="s" direction="in"/>
-        <arg name="key_id" type="ay" direction="out"/>
+        <arg name="key_id" type="s" direction="out"/>
       </method>
       <method name="createIdentity">
         <arg name="key_id" type="ay" direction="out"/>
@@ -40,27 +40,27 @@
         <arg name="result" type="y" direction="out"/>
       </method>
       <method name="markKeyVerified">
-        <arg name="key-id" type="ay" direction="in"/>
+        <arg name="key-id" type="s" direction="in"/>
       </method>
       <method name="securityHistoryByJID">
         <arg name="peer" type="s" direction="in"/>
-        <arg name="ake_events" type="a(ubssayay)" direction="out"/>
+        <arg name="ake_events" type="a(ubssss)" direction="out"/>
         <arg name="challenge_events" type="a(buuss)" direction="out"/>
-        <arg name="revocation_events" type="a(ayu)" direction="out"/>
-        <arg name="revocation_signal_events" type="a(ayu)" direction="out"/>
+        <arg name="revocation_events" type="a(su)" direction="out"/>
+        <arg name="revocation_signal_events" type="a(su)" direction="out"/>
       </method>
       <method name="securityHistoryByKeyID">
         <arg name="key_id" type="s" direction="in"/>
-        <arg name="ake_events" type="a(ubssayay)" direction="out"/>
+        <arg name="ake_events" type="a(ubssss)" direction="out"/>
         <arg name="challenge_events" type="a(buuss)" direction="out"/>
-        <arg name="revocation_events" type="a(ayu)" direction="out"/>
-        <arg name="revocation_signal_events" type="a(ayu)" direction="out"/>
+        <arg name="revocation_events" type="a(su)" direction="out"/>
+        <arg name="revocation_signal_events" type="a(su)" direction="out"/>
       </method>
       <method name="setIdentity">
-        <arg name="keyID" type="ay" direction="in"/>
+        <arg name="keyID" type="s" direction="in"/>
       </method>
       <method name="revokeIdentity">
-        <arg name="key_id" type="ay" direction="in"/>
+        <arg name="key_id" type="s" direction="in"/>
       </method>
       <method name="initiateChallenge">
         <arg name="peer" type="s" direction="in"/>
@@ -92,7 +92,7 @@
         <arg name="password" type="s" direction="in"/>
       </method>
       <method name="getIdentities">
-        <arg name="identities" type="aay" direction="out"/>
+        <arg name="identities" type="as" direction="out"/>
       </method>
       <method name="setCredentials">
         <arg name="username" type="s" direction="in"/>
@@ -136,7 +136,7 @@
         <arg name="peer" type="s"/>
       </signal>
       <property name="UnvailableEntities" type="a(sss)" access="read"/>
-      <property name="Identity" type="ay" access="read"/>
+      <property name="Identity" type="s" access="read"/>
       <property name="Status" type="y" access="read"/>
       <property name="AccountEnabled" type="b" access="readwrite"/>
       <property name="Username" type="s" access="read"/>

@@ -124,19 +124,19 @@ getIdentitiesMethod  =
     ("identities" -- ^ List of keyIDs
      :> ResultDone)
 
-
--- importKey st peer key = do
---     ctx <- Gpg.ctxNew Nothing
---     importResults <- Gpg.importKeys ctx key
---     liftM catMaybes $ forM importResults $ \res ->
---         case Gpg.isResult res of
---             Nothing -> do
---                 let fPrint = Gpg.isFprint res
---                 addPeerKey st peer (PubKey "gpg" fPrint)
---                 return $ Just fPrint
---             Just err -> do
---                 errorM "Pontarius.Xmpp" $ "error while importing key" ++ show err
---                 return Nothing
+importKey :: MonadIO m => t -> ByteString -> PSM m [ByteString]
+importKey _peer key = do
+    ctx <- liftIO $ Gpg.ctxNew Nothing
+    importResults <- liftIO $ Gpg.importKeys ctx key
+    liftM catMaybes $ forM importResults $ \res ->
+        case Gpg.isResult res of
+            Nothing -> do
+                let fPrint = Gpg.isFprint res
+--                addPeerKey st peer (PubKey "gpg" fPrint)
+                return $ Just fPrint
+            Just err -> do
+                liftIO . errorM "Pontarius.Xmpp" $ "error while importing key" ++ show err
+                return Nothing
 
 -- doGetPeerKeys st peer = do
 --     mbks <- getPeerKeys st peer
@@ -153,17 +153,19 @@ getIdentitiesMethod  =
 --                             "getGpgKeys"
 --                             (Result "keys")
 
--- exportSigningGpgKey st = do
---     (kt, kid) <- getSigningKey st
---     case kt of
---         "gpg" -> do
---             ctx <- Gpg.ctxNew Nothing
---             keys <- Gpg.getKeys ctx True
---             candidates <- filterM (\k -> (== Just kid) <$> Gpg.keyFingerprint k) keys
---             case candidates of
---                 (k:_) -> Just <$> Gpg.exportKeys ctx [k]
---                 _ -> return Nothing
---         _ -> return Nothing
+exportSigningGpgKey :: PSState -> IO (Maybe ByteString)
+exportSigningGpgKey st = do
+    mbKey <- runPSM st getSigningKey
+    case mbKey of
+        Just key | privIdentKeyBackend key == "gpg" -> do
+            let kid = privIdentKeyID key
+            ctx <- Gpg.ctxNew Nothing
+            keys <- Gpg.getKeys ctx True
+            candidates <- filterM (\k -> (== Just kid) <$> Gpg.keyFingerprint k) keys
+            case candidates of
+                (k:_) -> Just <$> Gpg.exportKeys ctx [k]
+                _ -> return Nothing
+        _ -> return Nothing
 
 -- checkSigningKey st = do
 --     (kt, kid) <- getSigningKey st

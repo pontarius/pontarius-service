@@ -217,6 +217,12 @@ startAKEMethod st = Method (DBus.repMethod $ runPSM st . startAKE)
                     ("peer" :-> Result)
                     ("success" :> ResultDone)
 
+getPeerKeyMethod :: PSState -> Method
+getPeerKeyMethod st = Method (DBus.repMethod $ runPSM st . requestPubkey)
+                      "getPeerKey"
+                      ("peer" :-> Result)
+                      ("keyIDs" :> ResultDone)
+
 receivedChallengeSignal :: SignalInterface
 receivedChallengeSignal = SignalI { signalName = "receivedChallenge"
                                   , signalArguments =
@@ -318,6 +324,7 @@ xmppInterface st = Interface
                 , setCredentialsMethod st
                 , getCredentialsMethod st
                 , startAKEMethod st
+                , getPeerKeyMethod st
                 ] []
                 [ receivedChallengeSignal
                 , challengeResultSignal

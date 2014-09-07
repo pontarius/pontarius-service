@@ -92,10 +92,10 @@ tryConnect st = runPSM st $ do
             (e2ectx, e2eplugin) <-
                 liftIO $ E2E.e2eInit (E2E.E2EG E2E.e2eDefaultParameters
                                       (E2E.PubKey "gpg" (fromKeyID kid)))
-                                      (\_ -> return $ Just True)
-                                      (\x -> return (fromMaybe "" x)) -- TODO
+                                      policy
+                                      (\x -> return (fromMaybe "" x))
                                       (signGPG (fromKeyID kid))
-                                      verifyGPG
+                                      verify
             mbSess <- liftIO $ Xmpp.session hostname
                           (Xmpp.simpleAuth username password)
                           (def & Xmpp.tlsUseNameIndicationL .~ True
@@ -124,6 +124,29 @@ tryConnect st = runPSM st $ do
                                 (\ch osc-> ch {TLS.onServerCertificate = osc})
     osc = Xmpp.streamConfigurationL . Xmpp.tlsParamsL
             . clientHooksL . onServerCertificateL
+    policy peer = runPSM st $ Just <$> checkPeerIdent peer
+
+    verify pk sig txt = verifyGPG (E2E.pubKeyIdent pk) sig txt
+
+
+-- | Check the local store for peer's key, if there is none, attempt to retrieve
+-- it
+--
+-- Returns True if a key could be found
+checkPeerIdent :: (MonadIO m, Functor m) => Xmpp.Jid -> PSM m Bool
+checkPeerIdent peer = do
+    mbKey <- getPeerIdent peer
+    case mbKey of
+        Just _key -> return True
+        Nothing -> do
+            mbKey <- requestPubkey peer
+            case mbKey of
+                Nothing -> return False
+                Just key -> do
+                    addPubIdent (toKeyID key)
+                    _ <- associatePubIdent peer (toKeyID key)
+                    return $ True
+
 
 -- | Try to establish a connection to the server. If the connection fails
 -- another attempt is made after a (exponentially increasing) grace period. This
@@ -312,10 +335,24 @@ getAvailableXmppPeersSTM st = do
     Xmpp.getAvailablePeers sess
 
 startAKE :: Xmpp.Jid -> PSM (MethodHandlerT IO) Bool
-startAKE j = do
-    e2eCtx <- getE2EContext
-    liftIO $ E2E.startE2E j e2eCtx (debug . show)
-
+startAKE peer = do
+    haveKey <- checkPeerIdent peer
+    case haveKey of
+        False -> return False
+        True -> do
+            e2eCtx <- getE2EContext
+            con <- getDBusCon
+            liftIO $ E2E.startE2E peer e2eCtx (peerTrustStatusChanged con)
+  where
+    peerTrustStatusChanged con status =
+        let sig = Signal { signalPath = pontariusObjectPath
+                         , signalInterface = pontariusInterface
+                         , signalMember = "peerTrustStatusChanged"
+                         , signalBody = [ DBV $ toRep peer
+                                        , DBV . toRep $ tShow status
+                                        ]
+                         }
+        in emitSignal sig con
 
 data PubkeyQuery = PubkeyQuery deriving Show
 
@@ -345,17 +382,27 @@ handlePubkeyRequest st _req = do
         Nothing -> return . Left $ Xmpp.mkStanzaError Xmpp.ItemNotFound
         Just key -> return . Right $ PubkeyResponse key
 
-requestPubkey :: Xmpp.Jid -> PSM (MethodHandlerT IO) [BS.ByteString]
+requestPubkey :: (MonadIO m, Functor m) =>
+                 Xmpp.Jid
+              -> PSM m (Maybe BS.ByteString)
 requestPubkey peer = do
-    sess <- getSession
-    resp <- liftIO . runExceptT $
-                Xmpp.sendIQRequest (Just 10000000) (Just peer) PubkeyQuery sess
-    key <- case resp of
-        Left e -> lift . methodError $
-                  MsgError "org.pontarius.Error.Xmpp.PubkyeQuery"
-                  (Just $ tShow e) []
-        Right (Left e) -> lift . methodError $
-                          MsgError "org.pontarius.Error.Xmpp.PubkyeQuery"
-                                   (Just $ tShow e) []
-        Right (Right r) -> return $ fromPubkeyResponse r
-    importKey peer key
+    st <- PSM ask
+    mbSess <- liftIO . atomically $ Just <$> getSessionSTM st
+                                    <|> return Nothing
+    case mbSess of
+     Nothing -> do
+         debug "requestPubkey: not connected"
+         return Nothing
+     Just sess -> do
+         resp <- liftIO . runExceptT $
+                     Xmpp.sendIQRequest (Just 10000000)
+                                        (Just peer) PubkeyQuery sess
+         case resp of
+             Left e -> do
+                 debug $ "requestPubkey returned error: " ++ show e
+                 return Nothing
+             Right (Left e) -> do
+                 debug $ "requestPubkey returned error: " ++ show e
+                 return Nothing
+             Right (Right r) -> listToMaybe <$>
+                                    importKey peer (fromPubkeyResponse r)

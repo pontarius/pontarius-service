@@ -132,38 +132,45 @@ identitiesPage con = withVBoxNew $ do
     (siLabel, _) <- withHBoxNew $ do
         addLabel (Just "selected identity")
         addLabel (Just "<identity>")
-    (store, treeView) <- packGrow $ withTreeViewListStore (do
+    idWindow <- packGrow $ withListWindow (do
         keyC <- addColumn "key" [ textRenderer (return . show) ]
         lift $ set keyC [treeViewColumnExpand := True])
                          (\id -> liftIO (throwME (setIdentity id con) :: IO ()))
     timedButton "getKeys" 500000 . liftIO $ do
-        ids <- (throwME $ getIdentities con) :: IO [ByteString]
+        ids <- (throwME $ getIdentities con) :: IO [Text]
         id <-  DBus.getProperty identityP con
-                    :: IO (Either MethodError ByteString)
-        setListStore store ids
+                    :: IO (Either MethodError Text)
+        setListWindow idWindow ids
         labelSetText siLabel (either (const $ "no identity set") show id)
 
 listView colName action =
-    withTreeViewListStore
+    withListWindow
         (do col <- addColumn colName [ textRenderer (return . show) ]
             lift $ set col [treeViewColumnExpand := True])
         action
 
 peersPage con = withVBoxNew $ do
-    (store, view) <- packGrow $ listView "peer" (\id -> return ())
+    peersWindow <- packGrow $ listView "peer" (\id -> return ())
     timedButton "get peers" 250000 $ do
         ps <- liftIO (throwME $ DBus.getProperty peersP con :: IO [(Text, Bool)])
-        liftIO $ setListStore store ps
+        liftIO $ setListWindow peersWindow ps
     packRepel $ performer "add peer" $ \peer -> do
         liftIO (throwME $ addPeer peer con :: IO ())
     packRepel $ performer "remove peer" $ \peer -> do
         liftIO (throwME $ removePeer peer con :: IO ())
-    (store, view) <- packGrow $ listView "peer"
+    avPeersWindow <- packGrow $ listView "peer"
                      (\id -> liftIO (throwME $ startAKE id con :: IO Bool)
                                       >>= logToWindow . show )
     timedButton "get available peers" 250000 $ do
         ps <- liftIO (throwME $ DBus.getProperty availableEntitiesP con :: IO [Text])
-        liftIO $ setListStore store ps
+        liftIO $ setListWindow avPeersWindow ps
+    peerKeyWindow <- packGrow $ listView "peer keys" (\_ -> return ())
+    timedButton "get keys from peers" 500000 $ liftIO $ do
+        peers <- listWindowGetSelectedItems avPeersWindow
+        keyIDs <- forM peers $ \peer ->
+                                (throwME $ getPeerKey peer con :: IO [ByteString])
+        setListWindow peerKeyWindow (zip peers keyIDs)
+
 
 
 mkMainView signalChan con = fmap (toWidget . snd) . withNotebook $ do

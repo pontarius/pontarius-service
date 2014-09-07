@@ -86,7 +86,7 @@ runPSM :: PSState -> PSM m a -> m a
 runPSM st (PSM m) = runReaderT m st
 
 
-type KeyID = ByteString
+type KeyID = Text
 type SessionID = ByteString
 
 data ConnectionStatus = Connected

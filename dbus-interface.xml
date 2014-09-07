@@ -105,6 +105,10 @@
         <arg name="peer" type="s" direction="in"/>
         <arg name="success" type="b" direction="out"/>
       </method>
+      <method name="getPeerKey">
+        <arg name="peer" type="s" direction="in"/>
+        <arg name="keyIDs" type="aay" direction="out"/>
+      </method>
       <signal name="receivedChallenge">
         <arg name="peer" type="s"/>
         <arg name="challenge_id" type="s"/>

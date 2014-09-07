@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -11,17 +12,24 @@ import           Control.Concurrent.STM
 import           Control.Concurrent.Thread.Delay
 import qualified Control.Exception as Ex
 import           Control.Lens
+import           Control.Monad.Except
 import           Control.Monad.Reader
+import           Control.Monad.Writer
 import           DBus
 import           DBus.Signal
 import           DBus.Types
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base64 as B64
 import           Data.Data
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
-import           Data.Monoid
 import           Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
+import           Data.XML.Pickle
+import           Data.XML.Types
 import qualified Network.TLS as TLS
 import qualified Network.Xmpp as Xmpp
 import qualified Network.Xmpp.E2E as E2E
@@ -42,6 +50,11 @@ instance Ex.Exception XmppConnectionUpdate
 
 tShow :: Show a => a -> Text
 tShow = Text.pack . show
+
+runHandler :: (MonadWriter [ThreadId] m, MonadIO m) => IO () -> m ()
+runHandler m = do
+    tid <- liftIO . forkIO $ m
+    tell [tid]
 
 -- | TODO: implement. This function is called when the connection state changed
 -- (i.e. the connection has been established, was closed, could not be
@@ -148,23 +161,24 @@ connector d st = do
             connector (nextDelay d) st
         Right (sess, e2eCtx) -> do
             sess' <- Xmpp.dupSession sess
-            subscriptions <- forkIO $ do
-                st <- Xmpp.waitForPresence ((== Xmpp.Subscribe )
-                                            . Xmpp.presenceType ) sess'
-                let Just fr = Xmpp.presenceTo st
-                    sig = Signal { signalPath = pontariusObjectPath
-                                 , signalInterface = pontariusInterface
-                                 , signalMember = "subscriptionRequest"
-                                 , signalBody = [DBV $ toRep fr]
-                                 }
-                emitSignal sig con
-            return (sess, e2eCtx, [subscriptions])
+            (_, threads) <- runWriterT $ do
+                runHandler $ do
+                    st <- Xmpp.waitForPresence ((== Xmpp.Subscribe )
+                                                . Xmpp.presenceType ) sess'
+                    let Just fr = Xmpp.presenceTo st
+                        sig = Signal { signalPath = pontariusObjectPath
+                                     , signalInterface = pontariusInterface
+                                     , signalMember = "subscriptionRequest"
+                                     , signalBody = [DBV $ toRep fr]
+                                     }
+                    emitSignal sig con
+                runHandler $ Xmpp.runIQHandler (handlePubkeyRequest st) sess
+            return (sess, e2eCtx, threads)
 
   where
     -- Exponential back-off, we double the retry delay each time up to a total
     -- of 5 minutes and ensure that it's not below 5 seconds
     nextDelay d = max 5 (min (2*d) (5*60))
-
 
 enableXmpp :: (MonadReader PSState m, MonadIO m, Functor m) => m ()
 enableXmpp = do
@@ -288,7 +302,9 @@ removePeer peer = do
 getAvailableXmppPeers :: PSM (MethodHandlerT IO) [Xmpp.Jid]
 getAvailableXmppPeers = do
     sess <- getSession
-    liftIO . atomically $ Xmpp.getAvailablePeers sess
+    liftIO . atomically $ do
+        ps <- Xmpp.getAvailablePeers sess
+        fmap concat . forM ps $ \p -> Map.keys <$> Xmpp.getPeerEntities p sess
 
 getAvailableXmppPeersSTM :: PSState -> STM [Xmpp.Jid]
 getAvailableXmppPeersSTM st = do
@@ -299,3 +315,47 @@ startAKE :: Xmpp.Jid -> PSM (MethodHandlerT IO) Bool
 startAKE j = do
     e2eCtx <- getE2EContext
     liftIO $ E2E.startE2E j e2eCtx (debug . show)
+
+
+data PubkeyQuery = PubkeyQuery deriving Show
+
+xpPubkeyQuery :: PU [Node] ()
+xpPubkeyQuery = xpElemBlank "{yabasta-pubkey-1:0}pubkey-query"
+
+xpBase64 :: PU t Text -> PU t ByteString
+xpBase64 = xpWrap B64.decodeLenient B64.encode
+             . xpWrap Text.encodeUtf8 Text.decodeUtf8
+
+instance Xmpp.IQRequestClass PubkeyQuery where
+    data IQResponseType PubkeyQuery =
+        PubkeyResponse {fromPubkeyResponse :: BS.ByteString}
+    pickleRequest  = xpRoot . xpUnliftElems . xpConst PubkeyQuery
+                       $ xpElemBlank "{yabasta-pubkey-1:0}pubkey-query"
+    pickleResponse = xpUnliftElems .
+                     xpElemNodes "{yabasta-pubkey-1:0}pubkey-response" .
+                       xpWrap PubkeyResponse fromPubkeyResponse .
+                         xpBase64 $ xpContent xpId
+    requestType _ = Xmpp.Get
+    requestNamespace _ = "yabasta-pubkey-1:0"
+
+handlePubkeyRequest :: PSState -> Xmpp.IQRequestHandler PubkeyQuery
+handlePubkeyRequest st _req = do
+    mbKey <- exportSigningGpgKey st
+    case mbKey of
+        Nothing -> return . Left $ Xmpp.mkStanzaError Xmpp.ItemNotFound
+        Just key -> return . Right $ PubkeyResponse key
+
+requestPubkey :: Xmpp.Jid -> PSM (MethodHandlerT IO) [BS.ByteString]
+requestPubkey peer = do
+    sess <- getSession
+    resp <- liftIO . runExceptT $
+                Xmpp.sendIQRequest (Just 10000000) (Just peer) PubkeyQuery sess
+    key <- case resp of
+        Left e -> lift . methodError $
+                  MsgError "org.pontarius.Error.Xmpp.PubkyeQuery"
+                  (Just $ tShow e) []
+        Right (Left e) -> lift . methodError $
+                          MsgError "org.pontarius.Error.Xmpp.PubkyeQuery"
+                                   (Just $ tShow e) []
+        Right (Right r) -> return $ fromPubkeyResponse r
+    importKey peer key

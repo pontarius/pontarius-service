@@ -35,6 +35,7 @@ executable pontarius-service
                , crypto-pubkey
                , d-bus
                , either
+               , exceptions >= 0.6
                , hslogger >= 1.2.4
                , lens >= 4.4
                , monad-logger >= 0.3.6.1

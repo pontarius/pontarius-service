@@ -168,10 +168,10 @@ getTrustStatusMethod =
     (DBus.repMethod $ (stub :: Text -> IO Bool))
     "getTrustStatus" ("entity" :-> Result) "is_trusted"
 
-getEntityPubkeyMethod :: Method
-getEntityPubkeyMethod =
+getEntityPubkeyMethod :: PSState -> Method
+getEntityPubkeyMethod st =
     DBus.Method
-    (DBus.repMethod $ (stub :: Xmpp.Jid -> IO Text))
+    (DBus.repMethod $ runPSM st . getEntityPubkeyM)
     "getEntityPubkey" ("entity" :-> Result)
     "key_id"
 
@@ -310,7 +310,7 @@ xmppInterface st = Interface
                 , initiateChallengeMethod
                 , respondChallengeMethod
                 , getTrustStatusMethod
-                , getEntityPubkeyMethod
+                , getEntityPubkeyMethod st
                 , addPeerMethod st
                 , removePeerMethod st
                 , registerAccountMethod

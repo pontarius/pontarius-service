@@ -28,9 +28,6 @@ import           Transactions
 import           Types
 import           Xmpp
 
-data State = State { connection :: Xmpp.Session
-                   }
-
 main :: IO ()
 main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
     runResourceT $ flip runSqlPool pool $ runMigration migrateAll

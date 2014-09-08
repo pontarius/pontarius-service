@@ -21,6 +21,12 @@ PubIdent
     imported UTCTime Maybe
     UniquePubIdentKey keyID
 
+-- Mark a Jid as belonging to a pubident
+PeerPubIdent
+    peer Jid
+    ident PubIdentId
+    UniquePeerPubIdent peer
+
 -- Store details about received revocations of public identities.
 Revocation
     sessionID SessionID Maybe

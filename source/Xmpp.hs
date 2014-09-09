@@ -342,13 +342,12 @@ getXmppRoster = do
     sess <- getSession
     Xmpp.items <$> liftIO (Xmpp.getRoster sess)
 
-getPeers :: PSM (MethodHandlerT IO) [(Xmpp.Jid, Bool)]
-getPeers = do
-    sess <- getSession
-    jids <- map Xmpp.riJid . filter ((== Xmpp.Both) . Xmpp.riSubscription)
-           . Map.elems <$> getXmppRoster
-    liftIO . atomically $ forM jids $ \j -> (j,) <$> Xmpp.isPeerAvailable j sess
-
+getPeersSTM :: PSState -> STM [Xmpp.Jid]
+getPeersSTM st = do
+    sess <- getSessionSTM st
+    map Xmpp.riJid . filter ((== Xmpp.Both) . Xmpp.riSubscription)
+           . Map.elems . Xmpp.items <$> Xmpp.getRosterSTM sess
+    <|> return []
 
 subscribe :: Xmpp.Jid -> PSM (MethodHandlerT IO) (Either Xmpp.XmppFailure ())
 subscribe peer = do

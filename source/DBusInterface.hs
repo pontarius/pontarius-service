@@ -222,8 +222,6 @@ receivedChallengeSignal = SignalI { signalName = "receivedChallenge"
                                   , signalArguments =
                                       [ sArgument "peer"
                                           (Proxy :: Proxy (RepType Xmpp.Jid))
-                                      , sArgument "challenge_id"
-                                          (Proxy :: Proxy (RepType Text))
                                       , sArgument "question"
                                           (Proxy :: Proxy (RepType Text))
                                       ]

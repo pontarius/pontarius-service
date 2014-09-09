@@ -14,6 +14,7 @@ import           Control.Concurrent.STM
 import           Control.Concurrent.Thread.Delay
 import qualified Control.Exception as Ex
 import           Control.Lens
+import           Control.Monad
 import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Control.Monad.Writer
@@ -342,11 +343,14 @@ getXmppRoster = do
     sess <- getSession
     Xmpp.items <$> liftIO (Xmpp.getRoster sess)
 
-getPeersSTM :: PSState -> STM [Xmpp.Jid]
+getPeersSTM :: PSState -> STM [(Xmpp.Jid, Bool)]
 getPeersSTM st = do
     sess <- getSessionSTM st
-    map Xmpp.riJid . filter ((== Xmpp.Both) . Xmpp.riSubscription)
-           . Map.elems . Xmpp.items <$> Xmpp.getRosterSTM sess
+    peers <- map Xmpp.riJid . filter ((== Xmpp.Both) . Xmpp.riSubscription)
+                 . Map.elems . Xmpp.items <$> Xmpp.getRosterSTM sess
+    forM peers $ \peer -> do
+        av <- Xmpp.isPeerAvailable peer sess
+        return (peer, av)
     <|> return []
 
 subscribe :: Xmpp.Jid -> PSM (MethodHandlerT IO) (Either Xmpp.XmppFailure ())

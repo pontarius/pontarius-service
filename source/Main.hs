@@ -17,7 +17,6 @@ import           DBus.Property
 import           Data.Monoid
 import qualified Data.Text.IO as Text
 import           Database.Persist.Sqlite
-import qualified Network.Xmpp as Xmpp
 import           System.Exit
 import           System.Log.Logger
 
@@ -71,12 +70,12 @@ main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
                          "Username"
                          (Just (getCredentialsM psState))
                          Nothing
-                         PECSFalse
+                         PECSTrue
         peersProp = mkProperty  pontariusObjectPath pontariusInterface
                          "Peers"
-                         (Just $ runPSM psState getPeers)
+                         (Just . lift . atomically $ getPeersSTM psState)
                          Nothing
-                         PECSFalse -- TODO
+                         PECSTrue
         availableEntitiesProp = mkProperty pontariusObjectPath pontariusInterface
                          "AvailableEntities"
                          (Just $ runPSM psState getAvailableXmppPeers)
@@ -102,6 +101,7 @@ main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
     manageStmProperty statusProp getStatus con
     manageStmProperty enabledProp  getEnabled con
     manageStmProperty availableEntitiesProp (getAvailableXmppPeersSTM psState) con
+    manageStmProperty peersProp (getPeersSTM psState) con
     debug "updateing state"
     runPSM psState updateState
     debug "done updating state"

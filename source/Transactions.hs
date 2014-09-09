@@ -9,6 +9,7 @@ import           Control.Monad.Reader
 import           Control.Monad.Trans.Either
 import           DBus.Types
 import qualified Data.ByteString as BS
+import           Data.Maybe
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Time.Clock
@@ -148,3 +149,16 @@ getEntityPubkeyM peer = do
                             , errorBody = []
                             }
         Just key -> return key
+
+getChallengesM :: PSM IO [(Xmpp.Jid, Bool, Text, Text, Text, Bool)]
+getChallengesM = do
+    c <- getChallenges
+    return $ map (\c -> ( challengePeer c
+                        , challengeOutgoing c
+                        , tShow $ challengeStarted c
+                        , maybe "" tShow $ challengeCompleted c
+                        , fromMaybe "" (challengeQuestion c)
+                        , fromMaybe False $ challengeResult c
+                        )) c
+  where
+    tShow = Text.pack . show

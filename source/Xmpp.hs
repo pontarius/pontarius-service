@@ -72,6 +72,7 @@ makeE2ECallbacks :: (MonadReader PSState m, MonadIO m) =>
                     ByteString
                  -> m E2E.E2ECallbacks
 makeE2ECallbacks kid = do
+    st <- ask
     con <- liftIO . atomically . readTMVar =<< view psDBusConnection
     let trustStatusSignal peer status
             = Signal { signalPath = pontariusObjectPath
@@ -101,10 +102,13 @@ makeE2ECallbacks kid = do
     return E2E.E2EC { E2E.onSendMessage = \_ _ -> return ()
                     , E2E.onStateChange =
                        \p s -> emitSignal (peerStatusSignal p s ) con
-                    , E2E.onSmpChallenge =
-                       \p c -> emitSignal (receivedChallengeSignal p c) con
-                    , E2E.onSmpAuthChange =
-                       \p s ->  emitSignal (trustStatusSignal p s) con
+                    , E2E.onSmpChallenge = \p q -> do
+                           -- TODO: Select Session ID
+                           runPSM st $ addChallenge p "todo" False q
+                           emitSignal (receivedChallengeSignal p q) con
+                    , E2E.onSmpAuthChange = \p s -> do
+                           runPSM st $ setChallengeCompleted p s
+                           emitSignal (trustStatusSignal p s) con
                     , E2E.cSign = signGPG kid
                     , E2E.cVerify =
                        \p pk sig txt -> verifyGPG p (E2E.pubKeyIdent pk) sig txt
@@ -391,7 +395,6 @@ startAKE peer = do
         False -> return False
         True -> do
             e2eCtx <- getE2EContext
-            con <- getDBusCon
             liftIO $ E2E.startE2E peer e2eCtx
 
 data PubkeyQuery = PubkeyQuery deriving Show
@@ -458,7 +461,7 @@ verifyChannel peer question secret = do
     case res of
         Left e -> lift . methodError $ MsgError "pontarius.Xmpp.SMP"
                                          (Just $ tShow e) []
-        Right r -> return r
+        Right _ -> addChallenge peer "todo" True mbQuestion
 
 respondChallenge :: Xmpp.Jid -> Text -> PSM (MethodHandlerT IO) ()
 respondChallenge peer secret = do

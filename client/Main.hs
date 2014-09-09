@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE GADTs#-}
 module Main where
 
 import           Control.Applicative
@@ -138,9 +139,9 @@ identitiesPage con = withVBoxNew $ do
                          (\id -> liftIO (throwME (setIdentity id con) :: IO ()))
     timedButton "getKeys" 500000 . liftIO $ do
         ids <- (throwME $ getIdentities con) :: IO [Text]
+        setListWindow idWindow ids
         id <-  DBus.getProperty identityP con
                     :: IO (Either MethodError Text)
-        setListWindow idWindow ids
         labelSetText siLabel (either (const $ "no identity set") show id)
 
 listView colName action =
@@ -152,24 +153,55 @@ listView colName action =
 peersPage con = withVBoxNew $ do
     peersWindow <- packGrow $ listView "peer" (\id -> return ())
     timedButton "get peers" 250000 $ do
-        ps <- liftIO (throwME $ DBus.getProperty peersP con :: IO [(Text, Bool)])
+        ps <- liftIO (throwME $ DBus.getProperty peersP con
+                      :: IO [(Text, Bool)])
         liftIO $ setListWindow peersWindow ps
-    packRepel $ performer "add peer" $ \peer -> do
-        liftIO (throwME $ addPeer peer con :: IO ())
-    packRepel $ performer "remove peer" $ \peer -> do
-        liftIO (throwME $ removePeer peer con :: IO ())
+    withHBoxNew $ do
+        performer "add peer" $ \peer ->
+            liftIO (throwME $ addPeer peer con :: IO ())
+        timedButton "remove selected peers" 250000 . liftIO $ do
+            peers <- listWindowGetSelectedItems peersWindow
+            forM_ peers $ \(peer,_) -> (throwME $ removePeer peer con :: IO ())
     avPeersWindow <- packGrow $ listView "peer"
                      (\id -> liftIO (throwME $ startAKE id con :: IO Bool)
                                       >>= logToWindow . show )
     timedButton "get available peers" 250000 $ do
         ps <- liftIO (throwME $ DBus.getProperty availableEntitiesP con :: IO [Text])
         liftIO $ setListWindow avPeersWindow ps
-    peerKeyWindow <- packGrow $ listView "peer keys" (\_ -> return ())
-    timedButton "get keys from peers" 500000 $ liftIO $ do
-        peers <- listWindowGetSelectedItems avPeersWindow
-        keyIDs <- forM peers $ \peer ->
-                                (throwME $ getPeerKey peer con :: IO [ByteString])
-        setListWindow peerKeyWindow (zip peers keyIDs)
+    withVBoxNew $ do
+        peerKeyWindow <- packGrow $ listView "peer keys" (\_ -> return ())
+        timedButton "get keys from Selected" 500000 $ liftIO $ do
+            peers <- listWindowGetSelectedItems avPeersWindow
+            keyIDs <- forM peers $
+                     \peer -> (throwME $ getEntityPubkey peer con :: IO Text)
+            setListWindow peerKeyWindow (zip peers keyIDs)
+    peerStatus <- labeledInput "peerStatus signal"
+    liftIO $ addSignalHandler anySignal{matchMember = Just "peerStatusChanged"}
+        mempty
+        (\sg -> postGUIAsync $ entrySetText peerStatus (show (signalBody sg)))
+        con
+    challengerField <- labeledInput "challenger"
+    questionField <- labeledInput "challenge question"
+    secretField <- labeledInput "secret"
+    liftIO $ addSignalHandler anySignal{matchMember = Just "receivedChallenge"}
+        mempty
+        (\sg -> case signalBody sg of
+                 [  DBV (DBVString chalPeer)
+                  , DBV (DBVString quest)] -> postGUIAsync $ do
+                     entrySetText challengerField chalPeer
+                     entrySetText questionField quest
+                 xs -> putStrLn $ "challenge signal type error" ++ show xs
+        )
+        con
+    timedButton "challenge" 250000 $ do
+        peers <- liftIO $ listWindowGetSelectedItems avPeersWindow
+        liftIO . forM_ peers $ \peer -> do
+            question <- entryGetText questionField :: IO Text
+            secret <- entryGetText secretField :: IO Text
+            throwME (initiateChallenge (peer :: Text) question secret con) :: IO ()
+
+
+
 
 
 

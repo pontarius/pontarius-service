@@ -15,6 +15,7 @@ import           Control.Monad.IO.Class
 import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Resource
+import qualified Data.Foldable as Foldable
 import           Data.Text (Text)
 import           Data.Time.Clock
 import           Database.Persist
@@ -108,3 +109,31 @@ getState :: (MonadReader PSState m, MonadIO m) => m PontariusState
 getState = do
     st <- view psState
     liftIO . atomically $ readTVar st
+
+addChallenge :: MonadIO m => Xmpp.Jid
+             -> SessionID
+             -> Bool
+             -> Maybe Text
+             -> PSM m ()
+addChallenge peer sid isOut mbQuestion = do
+    now <- liftIO $ getCurrentTime
+    _ <- runDB . insert $ Challenge peer sid isOut now Nothing mbQuestion Nothing
+    return ()
+
+setChallengeCompleted :: MonadIO m => Xmpp.Jid -> Bool -> PSM m ()
+setChallengeCompleted peer trust = runDB $ do
+    mbC <- selectFirst [ ChallengeCompleted ==. Nothing
+                       , ChallengePeer ==. peer
+                       ]
+                       [Desc ChallengeStarted]
+    now <- liftIO getCurrentTime
+    Foldable.forM_ mbC $ \chal ->
+        update (entityKey chal) [ ChallengeCompleted =. Just now
+                                , ChallengeResult =. Just trust
+                                ]
+
+
+
+getChallenges :: MonadIO m => PSM m [Challenge]
+getChallenges = runDB
+   $ map entityVal <$> selectList ([] :: [Filter Challenge]) [Asc ChallengeStarted]

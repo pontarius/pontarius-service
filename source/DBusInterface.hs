@@ -109,6 +109,13 @@ securityHistoryByKeyIdMethod =
      :> ResultDone
     )
 
+getChallengesMethod :: PSState -> DBus.Method
+getChallengesMethod st =
+    DBus.Method (DBus.repMethod $ runPSM st getChallengesM)
+    "getChallenges" Result
+     ( "challenges" :> ResultDone)
+
+
 initialize :: PSState -> IO PontariusState
 initialize st = runPSM st $ liftIO . atomically . readTVar =<< view psState
 
@@ -307,6 +314,7 @@ xmppInterface st = Interface
                 , revokeIdentityMethod
                 , initiateChallengeMethod st
                 , respondChallengeMethod st
+                , getChallengesMethod st
                 , getTrustStatusMethod
                 , getEntityPubkeyMethod st
                 , addPeerMethod st

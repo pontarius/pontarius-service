@@ -20,6 +20,7 @@ import           Data.Monoid
 import           Data.Text (Text)
 import qualified Data.Text.Encoding as Text
 import qualified GpgMe as Gpg
+import qualified Network.Xmpp as Xmpp
 import           System.Log.Logger
 
 --import           Network.Xmpp.E2E
@@ -213,8 +214,8 @@ signGPG kid bs = liftIO $ do
             debug$ "Signing " ++ show bs ++ " yielded " ++ show sig
             return sig
 
-verifyGPG :: ByteString -> ByteString -> ByteString -> IO Bool
-verifyGPG kid sig txt = do
+verifyGPG :: Xmpp.Jid -> ByteString -> ByteString -> ByteString -> IO Bool
+verifyGPG peer kid sig txt = do
     ctx <- Gpg.ctxNew Nothing
     debugM "Pontarius.Xmpp" $
         "Verifying signature "  ++ show sig ++ " for " ++ show txt

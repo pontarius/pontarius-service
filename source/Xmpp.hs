@@ -4,6 +4,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE ViewPatterns #-}
+
 module Xmpp where
 
 import           Control.Applicative
@@ -65,12 +67,58 @@ signalConnectionState _newState = return ()
 xmppError :: MonadIO m => Text -> m a
 xmppError = liftIO . Ex.throwIO . ConnectionError
 
+
+makeE2ECallbacks :: (MonadReader PSState m, MonadIO m) =>
+                    ByteString
+                 -> m E2E.E2ECallbacks
+makeE2ECallbacks kid = do
+    con <- liftIO . atomically . readTMVar =<< view psDBusConnection
+    let trustStatusSignal peer status
+            = Signal { signalPath = pontariusObjectPath
+                     , signalInterface = pontariusInterface
+                     , signalMember = "peerTrustStatusChanged"
+                     , signalBody = [ DBV $ toRep peer
+                                    , DBV . toRep $ tShow status
+                                    ]
+                     }
+        peerStatusSignal peer status
+            = Signal { signalPath = pontariusObjectPath
+                     , signalInterface = pontariusInterface
+                     , signalMember = "peerStatusChanged"
+                     , signalBody = [ DBV $ toRep peer
+                                    , DBV . toRep $ tShow status
+                                    ]
+                     }
+        receivedChallengeSignal peer mbQuestion
+            = Signal { signalPath = pontariusObjectPath
+                     , signalInterface = pontariusInterface
+                     , signalMember = "receivedChallenge"
+                     , signalBody = [ DBV $ toRep peer
+                                    , DBV . toRep $ fromMaybe "" mbQuestion
+                                    ]
+                     }
+
+    return E2E.E2EC { E2E.onSendMessage = \_ _ -> return ()
+                    , E2E.onStateChange =
+                       \p s -> emitSignal (peerStatusSignal p s ) con
+                    , E2E.onSmpChallenge =
+                       \p c -> emitSignal (receivedChallengeSignal p c) con
+                    , E2E.onSmpAuthChange =
+                       \p s ->  emitSignal (trustStatusSignal p s) con
+                    , E2E.cSign = signGPG kid
+                    , E2E.cVerify =
+                       \p pk sig txt -> verifyGPG p (E2E.pubKeyIdent pk) sig txt
+
+                    }
+
 -- | Make a single attempt to connect to the xmpp server
 --
 -- N.B.: Certain conditions may lead to a change of the current state.  The
 -- change of state automatically sends an updating dbus signal and may block the
 -- following connection attempts
-tryConnect :: MonadIO m => PSState -> m (Xmpp.Session, E2E.E2EContext)
+tryConnect :: MonadIO m =>
+              PSState
+           -> m (Xmpp.Session, E2E.E2EContext)
 tryConnect st = runPSM st $ do
     mbCredentials <- getCredentials
     case mbCredentials of
@@ -89,13 +137,12 @@ tryConnect st = runPSM st $ do
                                    -> xmppError $ "unknown key backend: "
                                         <> privIdentKeyBackend pid
                                | otherwise -> return $ privIdentKeyID pid
+            cbs <- makeE2ECallbacks (fromKeyID kid)
             (e2ectx, e2eplugin) <-
                 liftIO $ E2E.e2eInit (E2E.E2EG E2E.e2eDefaultParameters
                                       (E2E.PubKey "gpg" (fromKeyID kid)))
                                       policy
-                                      (\x -> return (fromMaybe "" x))
-                                      (signGPG (fromKeyID kid))
-                                      verify
+                                      cbs
             mbSess <- liftIO $ Xmpp.session hostname
                           (Xmpp.simpleAuth username password)
                           (def & Xmpp.tlsUseNameIndicationL .~ True
@@ -126,25 +173,28 @@ tryConnect st = runPSM st $ do
             . clientHooksL . onServerCertificateL
     policy peer = runPSM st $ Just <$> checkPeerIdent peer
 
-    verify pk sig txt = verifyGPG (E2E.pubKeyIdent pk) sig txt
-
-
 -- | Check the local store for peer's key, if there is none, attempt to retrieve
 -- it
 --
 -- Returns True if a key could be found
 checkPeerIdent :: (MonadIO m, Functor m) => Xmpp.Jid -> PSM m Bool
-checkPeerIdent peer = do
-    mbKey <- getPeerIdent peer
+checkPeerIdent peer= do
+    let barePeer = Xmpp.toBare peer
+    mbKey <- getPeerIdent barePeer
     case mbKey of
-        Just _key -> return True
+        Just key -> do
+            debug $ "found key " ++ show key ++ " for peer " ++ show barePeer
+            return True
         Nothing -> do
             mbKey <- requestPubkey peer
             case mbKey of
-                Nothing -> return False
+                Nothing -> do
+                    debug $ "Could not acquire key for peer " ++ show peer
+                    return False
                 Just key -> do
+                    debug $ "Got key " ++ show key ++ " from peer " ++ show peer
                     addPubIdent (toKeyID key)
-                    _ <- associatePubIdent peer (toKeyID key)
+                    _ <- associatePubIdent barePeer (toKeyID key)
                     return $ True
 
 
@@ -342,17 +392,7 @@ startAKE peer = do
         True -> do
             e2eCtx <- getE2EContext
             con <- getDBusCon
-            liftIO $ E2E.startE2E peer e2eCtx (peerTrustStatusChanged con)
-  where
-    peerTrustStatusChanged con status =
-        let sig = Signal { signalPath = pontariusObjectPath
-                         , signalInterface = pontariusInterface
-                         , signalMember = "peerTrustStatusChanged"
-                         , signalBody = [ DBV $ toRep peer
-                                        , DBV . toRep $ tShow status
-                                        ]
-                         }
-        in emitSignal sig con
+            liftIO $ E2E.startE2E peer e2eCtx
 
 data PubkeyQuery = PubkeyQuery deriving Show
 
@@ -406,3 +446,25 @@ requestPubkey peer = do
                  return Nothing
              Right (Right r) -> listToMaybe <$>
                                     importKey peer (fromPubkeyResponse r)
+
+verifyChannel :: Xmpp.Jid
+              -> Text
+              -> Text
+              -> PSM (MethodHandlerT IO) ()
+verifyChannel peer question secret = do
+    ctx <- getE2EContext
+    let mbQuestion = if Text.null question then Nothing else Just question
+    res <- liftIO $ E2E.startSmp peer mbQuestion secret ctx
+    case res of
+        Left e -> lift . methodError $ MsgError "pontarius.Xmpp.SMP"
+                                         (Just $ tShow e) []
+        Right r -> return r
+
+respondChallenge :: Xmpp.Jid -> Text -> PSM (MethodHandlerT IO) ()
+respondChallenge peer secret = do
+    ctx <- getE2EContext
+    res <- E2E.answerChallenge peer secret ctx
+    case res of
+     Left e -> lift . methodError $ MsgError "pontarius.Xmpp.SMP"
+                                         (Just $ tShow e) []
+     Right r -> return r

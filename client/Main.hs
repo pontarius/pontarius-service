@@ -227,18 +227,19 @@ mkMainView signalChan con = fmap (toWidget . snd) . withNotebook $ do
     addPage "connection" $ connectionPage con
     addPage "identities" $ identitiesPage con
     addPage "peers" $ peersPage con
-    addPage "challenges" $ peersPage con
+    addPage "challenges" $ challengesPage con
 
 main = do
     sChan <- newTChanIO
     con <- connectBus Session (\_ _ _ -> return ())
                (\x y z -> atomically $ writeTChan sChan (x,y,z))
-    let matchPropertiesSignal =
-            MatchSignal{ matchInterface = Just "org.freedesktop.DBus.Properties"
-                       , matchMember = Nothing
-                       , matchPath = Nothing
-                       , matchSender = Just "org.pontarius"
-                       }
-    addSignalHandler matchPropertiesSignal mempty print con
+    putStrLn "dbus connected"
+    -- let matchPropertiesSignal =
+    --         MatchSignal{ matchInterface = Just "org.freedesktop.DBus.Properties"
+    --                    , matchMember = Nothing
+    --                    , matchPath = Nothing
+    --                    , matchSender = Just "org.pontarius"
+    --                    }
+    -- addSignalHandler matchPropertiesSignal mempty print con
     uiMain (mkMainView sChan con) keymap (return ())
     return signalChan

@@ -203,16 +203,31 @@ peersPage con = withVBoxNew $ do
         peer <- entryGetText challengerField :: IO Text
         secret <- entryGetText secretField :: IO Text
         throwME (respondChallenge peer secret con) :: IO ()
+    (trustLabel, _) <- withHBoxNew $ do
+        addLabel (Just "trust status") >> addLabel Nothing
+    liftIO $ addSignalHandler anySignal{matchMember = Just "peerTrustStatusChanged"}
+        mempty
+        (\sg -> case signalBody sg of
+                 [  DBV (DBVString peer)
+                  , DBV (DBVString status)] -> postGUIAsync $ do
+                     labelSetText trustLabel $ peer <> " / " <> status
+                 xs -> putStrLn $ "challenge signal type error" ++ show xs
+        )
+        con
 
 
-
-
-
+challengesPage con = withVBoxNew $ do
+    challengesWindow <- listView "challenges" (\id -> return ())
+    timedButton "getChallenges" 250000 $ liftIO $ do
+        chals <- throwME (getChallenges con)
+                    :: IO [(Text, Bool, Text, Text, Text, Bool)]
+        setListWindow challengesWindow chals
 
 mkMainView signalChan con = fmap (toWidget . snd) . withNotebook $ do
     addPage "connection" $ connectionPage con
     addPage "identities" $ identitiesPage con
     addPage "peers" $ peersPage con
+    addPage "challenges" $ peersPage con
 
 main = do
     sChan <- newTChanIO

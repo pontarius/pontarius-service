@@ -148,18 +148,18 @@ createIdentityMethod st =
      :> ResultDone)
 
 
-initiateChallengeMethod :: Method
-initiateChallengeMethod =
+initiateChallengeMethod :: PSState -> Method
+initiateChallengeMethod st =
     DBus.Method
-    (DBus.repMethod $ (stub ::  Xmpp.Jid -> Text -> Text -> IO Text))
+    (DBus.repMethod $ \p q s -> runPSM st $ verifyChannel p q s)
     "initiateChallenge" ("peer" :-> "question" :-> "secret" :-> Result)
-    "challenge_id"
+    ResultDone
 
-respondChallengeMethod :: Method
-respondChallengeMethod =
+respondChallengeMethod :: PSState -> Method
+respondChallengeMethod st =
     DBus.Method
-    (DBus.repMethod $ (stub ::  Text -> Text -> IO ()))
-    "respondChallenge" ("challenge_id" :-> "secret" :-> Result)
+    (DBus.repMethod $ (\peer secret -> runPSM st $ respondChallenge peer secret))
+    "respondChallenge" ("peer" :-> "secret" :-> Result)
     ResultDone
 
 getTrustStatusMethod :: Method
@@ -307,8 +307,8 @@ xmppInterface st = Interface
                 , securityHistoryByKeyIdMethod
                 , setIdentityMethod st
                 , revokeIdentityMethod
-                , initiateChallengeMethod
-                , respondChallengeMethod
+                , initiateChallengeMethod st
+                , respondChallengeMethod st
                 , getTrustStatusMethod
                 , getEntityPubkeyMethod st
                 , addPeerMethod st

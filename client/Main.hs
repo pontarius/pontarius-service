@@ -199,6 +199,10 @@ peersPage con = withVBoxNew $ do
             question <- entryGetText questionField :: IO Text
             secret <- entryGetText secretField :: IO Text
             throwME (initiateChallenge (peer :: Text) question secret con) :: IO ()
+    timedButton "respond challenge" 250000 $ liftIO $ do
+        peer <- entryGetText challengerField :: IO Text
+        secret <- entryGetText secretField :: IO Text
+        throwME (respondChallenge peer secret con) :: IO ()
 
 
 

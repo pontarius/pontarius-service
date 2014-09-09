@@ -140,11 +140,11 @@ setSigningGpgKeyM st keyFpr = do
 
 getEntityPubkeyM :: Xmpp.Jid -> PSM (MethodHandlerT IO) KeyID
 getEntityPubkeyM peer = do
-    mbKey <- getPeerIdent peer
+    mbKey <- getPeerIdent (Xmpp.toBare peer)
     case mbKey of
         Nothing -> lift . methodError $
                    MsgError { errorName = "org.pontarius.Error.getEntityPubkey"
-                            , errorText = Just "No identityfound"
+                            , errorText = Just "No identity found"
                             , errorBody = []
                             }
         Just key -> return key

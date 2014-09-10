@@ -351,7 +351,7 @@ getPeersSTM st = do
     forM peers $ \peer -> do
         av <- Xmpp.isPeerAvailable peer sess
         return (peer, av)
-    <|> return []
+  <|> return []
 
 subscribe :: Xmpp.Jid -> PSM (MethodHandlerT IO) (Either Xmpp.XmppFailure ())
 subscribe peer = do

@@ -52,6 +52,7 @@ Session
 -- Challenges. A `Nothing' question means a query for a shared password. A
 -- `Nothing' result means that a timeout occured.
 Challenge
+    uniqueID UUID
     peer Jid
     sessionID SessionID
     outgoing Bool
@@ -59,6 +60,8 @@ Challenge
     completed UTCTime Maybe Eq
     question Text Maybe
     result Bool Maybe
+    hidden Bool Eq
+    UniqueChallenge uniqueID
 
 HostCredentials
     hostname Text -- hostname to connect to

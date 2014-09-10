@@ -149,21 +149,6 @@ importKey _peer key = do
                 liftIO . errorM "Pontarius.Xmpp" $ "error while importing key" ++ show err
                 return Nothing
 
--- doGetPeerKeys st peer = do
---     mbks <- getPeerKeys st peer
---     case mbks of
---         Nothing -> Ex.throw $ DBus.MsgError "No such peer" Nothing []
---         Just ks -> return $ Set.toList ks
-
--- getPeerKeysMethod st =
---     DBus.Method (DBus.repMethod $ doGetPeerKeys st)
---                 "getPeerKeys"
---                 ("peer" :-> Result "keys")
-
--- getKeysMethod = DBus.Method (DBus.repMethod $ getKeys)
---                             "getGpgKeys"
---                             (Result "keys")
-
 exportSigningGpgKey :: PSState -> IO (Maybe ByteString)
 exportSigningGpgKey st = do
     mbKey <- runPSM st getSigningKey
@@ -177,28 +162,6 @@ exportSigningGpgKey st = do
                 (k:_) -> Just <$> Gpg.exportKeys ctx [k]
                 _ -> return Nothing
         _ -> return Nothing
-
--- checkSigningKey st = do
---     (kt, kid) <- getSigningKey st
---     check <- case kt of
---         "gpg" -> do
---             ks <- getKeys
---             return $ kid `elem` ks
---         _ -> return True
---     return (kt, kid, check)
-
--- getSigningKeyMethod st = DBus.Method (DBus.repMethod $ checkSigningKey st)
---                             "getSigningKey"
---                             (Result "keys")
-
--- sign :: AcidState DaemonState
---      -> BS.ByteString
---      -> IO BS.ByteString
--- sign st bs = do
---     (kt, kid) <- getSigningKey st
---     case kt of
---         "gpg" -> signGPG kid bs
---         _ -> error "unknown signing key type"
 
 signGPG :: MonadIO m =>
            BS.ByteString
@@ -247,71 +210,3 @@ verifyGPG st peer kid sig txt = liftM (fromMaybe False) . runMaybeT $ do
   where
     goodStat Gpg.SigStatGood = True
     goodStat _ = False
--- ----------------------------------------
--- -- pubkeys -----------------------------
--- ----------------------------------------
-
--- mkError e = do
---     errorM "Pontarius.Xmpp" e
---     Ex.throw $ DBus.MsgError "org.freedesktop.DBus.Error.Failed"
---                              (Just $ Text.pack e) []
-
--- xpBase64 = xpPartial decode (Text.decodeUtf8 . B64.encode)
---   where
---     decode txt = case B64.decode $ Text.encodeUtf8 txt of
---         Left e -> Left $ Text.pack e
---         Right r -> Right r
-
-
--- xpPubkey = xpRoot . xpUnliftElems $
---             xpElemNodes "{org.pontarius.core.pubkey}pubkey" $
---               xpContent xpBase64
-
--- xpPubkeyRequest = xpRoot . xpUnliftElems $
---                     xpElemBlank "{org.pontarius.core.pubkey}pubkey-request"
-
--- handlePubkey :: AcidState DaemonState -> Session -> IO ()
--- handlePubkey st sess = do
---     mbChan <- listenIQ Get "org.pontarius.core.pubkey" sess
---     case mbChan of
---         Left _ -> return ()
---         Right c -> forever $ handle c
---   where
---     handle c = do
---         ticket <- atomically c
---         debugM "Pontarius.Xmpp" "Got pubkey request"
---         case unpickle xpPubkeyRequest (iqRequestPayload $ iqRequestBody ticket) of
---             Left e -> do
---                 errorM "Pontarius.Xmpp" $
---                     "unpickle error on pubkeyHandler: " ++ ppUnpickleError e
---                 _ <- answerIQ ticket (Left $ mkStanzaError BadRequest)
---                 return ()
---             Right _ -> do
---                 k <- exportSigningGpgKey st
---                 case k of
---                     Nothing -> do
---                         errorM "Pontarius.Xmpp" "Could not export GPG key"
---                         _ <- answerIQ ticket (Left $ mkStanzaError ItemNotFound)
---                         return ()
---                     Just bs -> do
---                         _ <- answerIQ ticket (Right . Just $ pickle xpPubkey bs)
---                         return ()
-
--- getPubkey :: AcidState DaemonState -> Session -> Jid -> IO [BS.ByteString]
--- getPubkey st session peer = do
---     answer <- sendIQ' (Just 3000000) (Just peer) Get Nothing (pickle xpPubkeyRequest ()) session
---     case answer of
---         Left e -> mkError $ "getPubkey couldn't send message: " ++ show e
---         Right (IQResponseError e) ->
---             mkError $ "getPubkey received error: " ++ show e
---         Right (IQResponseResult (IQResult{iqResultPayload = Just pl})) ->
---                case unpickle xpPubkey pl of
---                    Left e -> mkError
---                           $ "unpickle error in getPubkey : " ++ ppUnpickleError e
---                    Right pk -> importKey st peer pk
---         _ -> mkError "getPubkey: IQ didn't return a result"
-
--- getPubkeyMethod :: AcidState DaemonState -> Session -> DBus.Method
--- getPubkeyMethod st session = DBus.Method (DBus.repMethod $ getPubkey st session)
---                                          "getPubkey"
---                                          ("peer" :-> Result "fingerprints")

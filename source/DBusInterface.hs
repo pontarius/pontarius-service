@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -13,6 +14,7 @@ module DBusInterface
 import           Control.Concurrent.STM
 import qualified Control.Exception as Ex
 import           Control.Lens
+import           Control.Monad
 import           Control.Monad.Trans
 import           DBus as DBus
 import           DBus.Types
@@ -21,7 +23,10 @@ import           Data.Proxy
 import           Data.Singletons
 import           Data.String
 import           Data.Text (Text)
+import qualified Data.Text as Text
 import           Data.Typeable (Typeable)
+import           Data.UUID (UUID)
+import qualified Data.UUID as UUID
 import qualified Network.Xmpp as Xmpp
 
 import           Basic
@@ -55,6 +60,12 @@ pontariusProperty name =
              , propertySet = Nothing
              , propertyEmitsChangedSignal = PECSTrue
              }
+
+instance DBus.Representable UUID where
+    type RepType UUID = RepType Text
+    toRep = toRep . Text.pack . UUID.toString
+    fromRep = UUID.fromString . Text.unpack <=< fromRep
+
 ----------------------------------------------------
 -- Methods
 ----------------------------------------------------
@@ -114,6 +125,13 @@ getChallengesMethod st =
     DBus.Method (DBus.repMethod $ runPSM st getChallengesM)
     "getChallenges" Result
      ( "challenges" :> ResultDone)
+
+removeChallengeMethod :: PSState -> DBus.Method
+removeChallengeMethod st =
+    DBus.Method (DBus.repMethod $ runPSM st . removeChallenge)
+    "removeChallenge"
+    ("challenge_id" :-> Result )
+    ResultDone
 
 
 initialize :: PSState -> IO PontariusState
@@ -317,6 +335,7 @@ xmppInterface st = Interface
                 , initiateChallengeMethod st
                 , respondChallengeMethod st
                 , getChallengesMethod st
+                , removeChallengeMethod st
                 , getTrustStatusMethod
                 , getEntityPubkeyMethod st
                 , addPeerMethod st

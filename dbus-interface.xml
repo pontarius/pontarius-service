@@ -72,7 +72,10 @@
         <arg name="secret" type="s" direction="in"/>
       </method>
       <method name="getChallenges">
-        <arg name="challenges" type="a(sbsssb)" direction="out"/>
+        <arg name="challenges" type="a(ssbsssb)" direction="out"/>
+      </method>
+      <method name="removeChallenge">
+        <arg name="challenge_id" type="s" direction="in"/>
       </method>
       <method name="getTrustStatus">
         <arg name="entity" type="s" direction="in"/>

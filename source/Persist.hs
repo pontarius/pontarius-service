@@ -18,6 +18,9 @@ import           Control.Monad.Trans.Resource
 import qualified Data.Foldable as Foldable
 import           Data.Text (Text)
 import           Data.Time.Clock
+import           Data.UUID (UUID)
+import qualified Data.UUID as UUID
+import qualified Data.UUID.V4 as UUID
 import           Database.Persist
 import           Database.Persist.Sqlite
 import qualified Network.Xmpp as Xmpp
@@ -117,7 +120,9 @@ addChallenge :: MonadIO m => Xmpp.Jid
              -> PSM m ()
 addChallenge peer sid isOut mbQuestion = do
     now <- liftIO $ getCurrentTime
-    _ <- runDB . insert $ Challenge peer sid isOut now Nothing mbQuestion Nothing
+    challengeID <- liftIO $ UUID.nextRandom
+    _ <- runDB . insert $ Challenge challengeID peer sid isOut now
+                                    Nothing mbQuestion Nothing False
     return ()
 
 setChallengeCompleted :: MonadIO m => Xmpp.Jid -> Bool -> PSM m ()
@@ -133,7 +138,14 @@ setChallengeCompleted peer trust = runDB $ do
                                 ]
 
 
+getChallenges :: (MonadIO m, Functor m) => PSM m [Challenge]
+getChallenges = map entityVal <$>
+                  runDB (selectList [ChallengeHidden ==. False]
+                                    [Asc ChallengeStarted])
 
-getChallenges :: MonadIO m => PSM m [Challenge]
-getChallenges = runDB
-   $ map entityVal <$> selectList ([] :: [Filter Challenge]) [Asc ChallengeStarted]
+hideChallenge :: MonadIO m => UUID -> PSM m ()
+hideChallenge challengeID = runDB $ do
+    mbChal <- getBy $ UniqueChallenge challengeID
+    Foldable.forM_ mbChal $
+        \chal -> upsert (entityVal chal){challengeHidden = True} []
+    return ()

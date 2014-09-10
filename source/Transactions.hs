@@ -13,6 +13,8 @@ import           Data.Maybe
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Time.Clock
+import           Data.UUID (UUID)
+import qualified Data.UUID as UUID
 import qualified Network.Xmpp as Xmpp
 
 import           Basic
@@ -150,10 +152,11 @@ getEntityPubkeyM peer = do
                             }
         Just key -> return key
 
-getChallengesM :: PSM IO [(Xmpp.Jid, Bool, Text, Text, Text, Bool)]
+getChallengesM :: PSM IO [(UUID, Xmpp.Jid, Bool, Text, Text, Text, Bool)]
 getChallengesM = do
     c <- getChallenges
-    return $ map (\c -> ( challengePeer c
+    return $ map (\c -> ( challengeUniqueID c
+                        , challengePeer c
                         , challengeOutgoing c
                         , tShow $ challengeStarted c
                         , maybe "" tShow $ challengeCompleted c
@@ -162,3 +165,8 @@ getChallengesM = do
                         )) c
   where
     tShow = Text.pack . show
+
+removeChallenge :: UUID -> PSM IO ()
+removeChallenge = hideChallenge
+
+-- removeChallange

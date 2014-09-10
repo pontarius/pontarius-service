@@ -9,16 +9,18 @@
 
 module Persist.Schema where
 
-import Control.Lens
-import Data.Text (Text)
-import Data.Time.Clock
-import Database.Persist
-import Database.Persist.Quasi
-import Database.Persist.TH
-import Network.Xmpp (Jid)
+import           Control.Lens
+import           Data.Text (Text)
+import           Data.Time.Clock
+import           Data.UUID (UUID)
+import qualified Data.UUID as UUID
+import           Database.Persist
+import           Database.Persist.Quasi
+import           Database.Persist.TH
+import           Network.Xmpp (Jid)
 
-import Persist.Stage
-import Types
+import           Persist.Stage
+import           Types
 
 share [ mkPersist sqlSettings, mkMigrate "migrateAll"]
     $(persistFileWith lowerCaseSettings "schema")

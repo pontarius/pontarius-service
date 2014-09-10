@@ -10,6 +10,7 @@ module Gpg where
 import           Control.Applicative
 import qualified Control.Exception as Ex
 import           Control.Monad
+import           Control.Monad.Trans.Maybe
 import           Control.Monad.Reader
 import           DBus
 import qualified DBus.Types as DBus
@@ -214,23 +215,35 @@ signGPG kid bs = liftIO $ do
             debug$ "Signing " ++ show bs ++ " yielded " ++ show sig
             return sig
 
-verifyGPG :: Xmpp.Jid -> ByteString -> ByteString -> ByteString -> IO Bool
-verifyGPG peer kid sig txt = do
-    ctx <- Gpg.ctxNew Nothing
-    debugM "Pontarius.Xmpp" $
-        "Verifying signature "  ++ show sig ++ " for " ++ show txt
-    res <- Ex.try $ Gpg.verifyDetach ctx txt sig
-    case res of
-        Left (e :: Gpg.Error) -> do
-            errorM "Pontarius.Xmpp"
-                $ "Verifying signature threw exception" ++ show e
-            return False
-        Right res | all (goodStat . Gpg.status) res -> do
-            infoM "Pontarius.Xmpp" "Signature seems good."
-            return True
-                  | otherwise -> do
-            warningM "Pontarius.Xmpp" $ "Signature problem: " ++ show res
-            return False
+verifyGPG :: PSState
+          -> Xmpp.Jid
+          -> ByteString
+          -> ByteString
+          -> ByteString
+          -> IO Bool
+verifyGPG st peer kid sig txt = liftM (fromMaybe False) . runMaybeT $ do
+    -- Firstly check that we have the pubkey on file for that key
+    mbKey <- liftIO  . runPSM st $ getPeerIdent peer
+    case mbKey of
+        Nothing -> mzero
+        Just kid' -> guard $ kid == (fromKeyID kid')
+    liftIO $ do
+        ctx <- Gpg.ctxNew Nothing
+        debugM "Pontarius.Xmpp" $
+            "Verifying signature "  ++ show sig ++ " for " ++ show txt
+        res <- Ex.try $ Gpg.verifyDetach ctx txt sig -- Gpg.Error
+        case res of
+            Left (e :: Gpg.Error) -> do
+                errorM "Pontarius.Xmpp"
+                    $ "Verifying signature threw exception" ++ show e
+                return False
+            Right res | all (goodStat . Gpg.status) res -> do
+                infoM "Pontarius.Xmpp" "Signature seems good."
+                debugM "Pontarius.Xmpp" $ "result: " ++ show res
+                return True
+                      | otherwise -> do
+                warningM "Pontarius.Xmpp" $ "Signature problem: " ++ show res
+                return False
   where
     goodStat Gpg.SigStatGood = True
     goodStat _ = False

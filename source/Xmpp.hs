@@ -112,7 +112,8 @@ makeE2ECallbacks kid = do
                            emitSignal (trustStatusSignal p s) con
                     , E2E.cSign = signGPG kid
                     , E2E.cVerify =
-                       \p pk sig txt -> verifyGPG p (E2E.pubKeyIdent pk) sig txt
+                       \p pk sig txt -> verifyGPG st p (E2E.pubKeyIdent pk)
+                                                  sig txt
 
                     }
 

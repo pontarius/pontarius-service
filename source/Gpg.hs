@@ -189,35 +189,29 @@ verifyGPG :: PSState
           -> ByteString
           -> ByteString
           -> IO Bool
-verifyGPG st peer kid sig txt = liftM (fromMaybe False) . runMaybeT $ do
-    -- Firstly check that we have the pubkey on file for that key
-    keys <- liftIO  . runPSM st $ getPeerIdents peer
-    guard $ (toKeyID kid) `elem` keys
-    liftIO $ do
-        ctx <- Gpg.ctxNew Nothing
-        debugM "Pontarius.Xmpp" $
-            "Verifying signature "  ++ show sig ++ " for " ++ show txt
-        res <- Ex.try $ Gpg.verifyDetach ctx txt sig -- Gpg.Error
-        case res of
-            Left (e :: Gpg.Error) -> do
-                errorM "Pontarius.Xmpp"
-                    $ "Verifying signature threw exception" ++ show e
-                return False
-            Right [st] -> do
-                gpgGuard ("could not verify signature: " ++ show st)
-                    (goodStat $ Gpg.status st)
-                gpgGuard ("Fingerpringt doesn't match: " ++ show kid
-                           ++ " /= " ++ show (Gpg.fingerprint st))
-                         (Gpg.fingerprint st == kid)
-                debugM "Pontarius.Xmpp" $ "Signature seems good"
-                return True
-            Right [] -> do
-                errorM "Pontarius.Xmpp" "verifyGPG: Could not import pubkey"
-                return False
-            Right _ -> do
-                debugM "Pontarius.Xmpp" "multiple signature results"
-
-                return False
+verifyGPG st peer kid sig txt = do
+    ctx <- Gpg.ctxNew Nothing
+    debug $ "Verifying signature "  ++ show sig ++ " for " ++ show txt
+    res <- Ex.try $ Gpg.verifyDetach ctx txt sig -- Gpg.Error
+    case res of
+        Left (e :: Gpg.Error) -> do
+            errorM "Pontarius.Xmpp"
+                $ "Verifying signature threw exception" ++ show e
+            return False
+        Right [st] -> do
+            gpgGuard ("could not verify signature: " ++ show st)
+                (goodStat $ Gpg.status st)
+            gpgGuard ("Fingerpringt doesn't match: " ++ show kid
+                       ++ " /= " ++ show (Gpg.fingerprint st))
+                     (Gpg.fingerprint st == kid)
+            debugM "Pontarius.Xmpp" $ "Signature seems good"
+            return True
+        Right [] -> do
+            errorM "Pontarius.Xmpp" "verifyGPG: Could not import pubkey"
+            return False
+        Right _ -> do
+            debugM "Pontarius.Xmpp" "multiple signature results"
+            return False
 
   where
     goodStat Gpg.SigStatGood = True

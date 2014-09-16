@@ -187,6 +187,7 @@ verifySignature st peer pk sig pt = runPSM st $ do
     case ids of
         [id] -> do
             verified <- liftIO $ verifyGPG st peer id sig pt
+            debug $ "Signature is: "  ++ show verified
             case verified of
                 True -> do
                     _ <- associatePubIdent peer $ toKeyID id

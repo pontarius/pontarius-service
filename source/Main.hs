@@ -29,8 +29,11 @@ import           Xmpp
 
 main :: IO ()
 main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
-    runResourceT $ flip runSqlPool pool $ runMigration migrateAll
     updateGlobalLogger "Pontarius.Xmpp" $ setLevel DEBUG
+    updateGlobalLogger "DBus" $ setLevel DEBUG
+    debug "migrating"
+    runResourceT $ flip runSqlPool pool $ runMigration migrateAll
+    debug "setting up state"
     xmppConRef <- newTVarIO XmppNoConnection
     propertiesRef <- newEmptyTMVarIO
     pState <- newTVarIO CredentialsUnset
@@ -86,8 +89,11 @@ main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
                                 <> property usernameProp
                                 <> property peersProp
                                 <> property availableEntitiesProp
+    debug "connecting to dbus"
     con <- makeServer DBus.Session ro
+    debug "setting dbus session"
     atomically $ putTMVar conRef con
+    debug "requesting dbus name"
     requestName "org.pontarius" def con >>= liftIO . \case
         PrimaryOwner -> return ()
         DBus.InQueue -> do
@@ -98,11 +104,12 @@ main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
             exitSuccess
         DBus.AlreadyOwner -> do
             debug "dbus server reports \"already owner\"?!?"
+    debug "setting up properties"
     manageStmProperty statusProp getStatus con
     manageStmProperty enabledProp  getEnabled con
     manageStmProperty availableEntitiesProp (getAvailableXmppPeersSTM psState) con
     manageStmProperty peersProp (getPeersSTM psState) con
-    debug "updateing state"
+    debug "updating state"
     runPSM psState updateState
     debug "done updating state"
 

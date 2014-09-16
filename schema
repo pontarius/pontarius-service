@@ -25,7 +25,10 @@ PubIdent
 PeerPubIdent
     peer Jid
     ident PubIdentId
-    UniquePeerPubIdent peer
+    -- When did the peer first complete an AKE using this key
+    activated UTCTime
+    active Checkmark nullable
+    UniquePeerPubIdent peer ident
 
 -- Store details about received revocations of public identities.
 Revocation

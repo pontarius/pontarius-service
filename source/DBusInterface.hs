@@ -122,8 +122,8 @@ securityHistoryByKeyIdMethod =
 
 getChallengesMethod :: PSState -> DBus.Method
 getChallengesMethod st =
-    DBus.Method (DBus.repMethod $ runPSM st getChallengesM)
-    "getChallenges" Result
+    DBus.Method (DBus.repMethod $ runPSM st . getChallengesM)
+    "getChallenges" ("peer" :-> Result)
      ( "challenges" :> ResultDone)
 
 removeChallengeMethod :: PSState -> DBus.Method
@@ -192,13 +192,6 @@ getTrustStatusMethod =
     DBus.Method
     (DBus.repMethod $ (stub :: Text -> IO Bool))
     "getTrustStatus" ("entity" :-> Result) "is_trusted"
-
-getEntityPubkeyMethod :: PSState -> Method
-getEntityPubkeyMethod st =
-    DBus.Method
-    (DBus.repMethod $ runPSM st . getEntityPubkeyM)
-    "getEntityPubkey" ("entity" :-> Result)
-    "key_id"
 
 addPeerMethod :: PSState -> Method
 addPeerMethod st =
@@ -335,7 +328,6 @@ xmppInterface st = Interface
                 , getChallengesMethod st
                 , removeChallengeMethod st
                 , getTrustStatusMethod
-                , getEntityPubkeyMethod st
                 , addPeerMethod st
                 , removePeerMethod st
                 , registerAccountMethod

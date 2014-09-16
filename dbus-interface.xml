@@ -72,6 +72,7 @@
         <arg name="secret" type="s" direction="in"/>
       </method>
       <method name="getChallenges">
+        <arg name="peer" type="s" direction="in"/>
         <arg name="challenges" type="a(ssbsssb)" direction="out"/>
       </method>
       <method name="removeChallenge">
@@ -80,10 +81,6 @@
       <method name="getTrustStatus">
         <arg name="entity" type="s" direction="in"/>
         <arg name="is_trusted" type="b" direction="out"/>
-      </method>
-      <method name="getEntityPubkey">
-        <arg name="entity" type="s" direction="in"/>
-        <arg name="key_id" type="s" direction="out"/>
       </method>
       <method name="addPeer">
         <arg name="jid" type="s" direction="in"/>
@@ -112,7 +109,6 @@
       </method>
       <signal name="receivedChallenge">
         <arg name="peer" type="s"/>
-        <arg name="challenge_id" type="s"/>
         <arg name="question" type="s"/>
       </signal>
       <signal name="challengeResult">

@@ -41,6 +41,7 @@ import           Persist
 
 import           Basic
 import           Gpg
+import           Transactions
 import           Types
 
 data XmppConnectionUpdate = NowConnected
@@ -112,8 +113,8 @@ makeE2ECallbacks kid = do
                            emitSignal (trustStatusSignal p s) con
                     , E2E.cSign = signGPG kid
                     , E2E.cVerify =
-                       \p pk sig txt -> verifyGPG st p (E2E.pubKeyIdent pk)
-                                                  sig txt
+                       \p pk sig txt -> verifySignature st p (E2E.pubKeyData pk)
+                                                             sig txt
 
                     }
 
@@ -177,32 +178,7 @@ tryConnect st = runPSM st $ do
                                 (\ch osc-> ch {TLS.onServerCertificate = osc})
     osc = Xmpp.streamConfigurationL . Xmpp.tlsParamsL
             . clientHooksL . onServerCertificateL
-    policy peer = runPSM st $ Just <$> checkPeerIdent peer
-
--- | Check the local store for peer's key, if there is none, attempt to retrieve
--- it
---
--- Returns True if a key could be found
-checkPeerIdent :: (MonadIO m, Functor m) => Xmpp.Jid -> PSM m Bool
-checkPeerIdent peer= do
-    let barePeer = Xmpp.toBare peer
-    mbKey <- getPeerIdent barePeer
-    case mbKey of
-        Just key -> do
-            debug $ "found key " ++ show key ++ " for peer " ++ show barePeer
-            return True
-        Nothing -> do
-            mbKey <- requestPubkey peer
-            case mbKey of
-                Nothing -> do
-                    debug $ "Could not acquire key for peer " ++ show peer
-                    return False
-                Just key -> do
-                    debug $ "Got key " ++ show key ++ " from peer " ++ show peer
-                    addPubIdent (toKeyID key)
-                    _ <- associatePubIdent barePeer (toKeyID key)
-                    return $ True
-
+    policy _peer = return $ Just True -- TODO: cross-check with DB
 
 -- | Try to establish a connection to the server. If the connection fails
 -- another attempt is made after a (exponentially increasing) grace period. This
@@ -394,12 +370,8 @@ getAvailableXmppPeersSTM st = do
 
 startAKE :: Xmpp.Jid -> PSM (MethodHandlerT IO) Bool
 startAKE peer = do
-    haveKey <- checkPeerIdent peer
-    case haveKey of
-        False -> return False
-        True -> do
-            e2eCtx <- getE2EContext
-            liftIO $ E2E.startE2E peer e2eCtx
+    e2eCtx <- getE2EContext
+    liftIO $ E2E.startE2E peer e2eCtx
 
 data PubkeyQuery = PubkeyQuery deriving Show
 
@@ -451,8 +423,7 @@ requestPubkey peer = do
              Right (Left e) -> do
                  debug $ "requestPubkey returned error: " ++ show e
                  return Nothing
-             Right (Right r) -> listToMaybe <$>
-                                    importKey peer (fromPubkeyResponse r)
+             Right (Right r) -> listToMaybe <$> importIdent (fromPubkeyResponse r)
 
 verifyChannel :: Xmpp.Jid
               -> Text

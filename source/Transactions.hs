@@ -14,7 +14,6 @@ import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Time.Clock
 import           Data.UUID (UUID)
-import qualified Data.UUID as UUID
 import qualified Network.Xmpp as Xmpp
 
 import           Basic
@@ -141,20 +140,21 @@ setSigningGpgKeyM st keyFpr = do
                           , errorBody = []
                           }
 
-getEntityPubkeyM :: Xmpp.Jid -> PSM (MethodHandlerT IO) KeyID
-getEntityPubkeyM peer = do
-    mbKey <- getPeerIdent (Xmpp.toBare peer)
-    case mbKey of
-        Nothing -> lift . methodError $
-                   MsgError { errorName = "org.pontarius.Error.getEntityPubkey"
-                            , errorText = Just "No identity found"
-                            , errorBody = []
-                            }
-        Just key -> return key
+-- getEntityPubkeyM :: Xmpp.Jid -> PSM (MethodHandlerT IO) KeyID
+-- getEntityPubkeyM peer = do
+--     mbKey <- checkPeerKey
+--     case mbKey of
+--         Nothing -> lift . methodError $
+--                    MsgError { errorName = "org.pontarius.Error.getEntityPubkey"
+--                             , errorText = Just "No identity found"
+--                             , errorBody = []
+--                             }
+--         Just key -> return key
 
-getChallengesM :: PSM IO [(UUID, Xmpp.Jid, Bool, Text, Text, Text, Bool)]
-getChallengesM = do
-    c <- getChallenges
+getChallengesM :: Xmpp.Jid ->
+                  PSM IO [(UUID, Xmpp.Jid, Bool, Text, Text, Text, Bool)]
+getChallengesM peer = do
+    c <- getChallenges peer
     return $ map (\c -> ( challengeUniqueID c
                         , challengePeer c
                         , challengeOutgoing c
@@ -169,4 +169,29 @@ getChallengesM = do
 removeChallenge :: UUID -> PSM IO ()
 removeChallenge = hideChallenge
 
--- removeChallange
+importIdent :: MonadIO m => BS.ByteString -> PSM m [BS.ByteString]
+importIdent ident = do
+    ids <- importKey ident
+    forM_ ids $ addPubIdent . toKeyID
+    return ids
+
+verifySignature :: MonadIO m =>
+                   PSState
+                -> Xmpp.Jid
+                -> BS.ByteString
+                -> BS.ByteString
+                -> BS.ByteString
+                -> m Bool
+verifySignature st peer pk sig pt = runPSM st $ do
+    ids <- importIdent pk
+    case ids of
+        [id] -> do
+            verified <- liftIO $ verifyGPG st peer id sig pt
+            case verified of
+                True -> do
+                    _ <- associatePubIdent peer $ toKeyID id
+                    return True
+                False -> return False
+        _ -> do
+            debug "import resulted in more than one key"
+            return False

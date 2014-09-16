@@ -36,6 +36,7 @@ import           Network.Xmpp (jid, Jid)
 import           System.Environment
 import           System.Exit
 import           System.IO
+import           System.Log.Logger
 
 import           DBusInterface hiding (set)
 import           Types
@@ -163,8 +164,10 @@ peersPage con = withVBoxNew $ do
             peers <- listWindowGetSelectedItems peersWindow
             forM_ peers $ \(peer,_) -> (throwME $ removePeer peer con :: IO ())
     avPeersWindow <- packGrow $ listView "peer"
-                     (\id -> liftIO (throwME $ startAKE id con :: IO Bool)
-                                      >>= logToWindow . show )
+                     (\id -> do
+                           res <- liftIO (startAKE id con
+                                          :: IO (Either MethodError Bool))
+                           logToWindow $ show res)
     timedButton "get available peers" 250000 $ do
         ps <- liftIO (throwME $ DBus.getProperty availableEntitiesP con :: IO [Text])
         liftIO $ setListWindow avPeersWindow ps
@@ -228,6 +231,7 @@ mkMainView signalChan con = fmap (toWidget . snd) . withNotebook $ do
     addPage "challenges" $ challengesPage identView con
 
 main = do
+    updateGlobalLogger "DBus" $ setLevel DEBUG
     sChan <- newTChanIO
     con <- connectBus Session (\_ _ _ -> return ())
                (\x y z -> atomically $ writeTChan sChan (x,y,z))

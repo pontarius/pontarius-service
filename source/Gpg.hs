@@ -135,8 +135,8 @@ getIdentitiesMethod  =
     ("identities" -- ^ List of keyIDs
      :> ResultDone)
 
-importKey :: MonadIO m => t -> ByteString -> PSM m [ByteString]
-importKey _peer key = do
+importKey :: MonadIO m => ByteString -> PSM m [ByteString]
+importKey key = do
     ctx <- liftIO $ Gpg.ctxNew Nothing
     importResults <- liftIO $ Gpg.importKeys ctx key
     liftM catMaybes $ forM importResults $ \res ->
@@ -175,8 +175,13 @@ signGPG kid bs = liftIO $ do
         [] -> error "key does not exist" -- return Nothing
         (p:_) -> do
             sig <- Gpg.sign ctx bs p Gpg.SigModeDetach
-            debug$ "Signing " ++ show bs ++ " yielded " ++ show sig
+            debug $ "Signing " ++ show bs ++ " yielded " ++ show sig
             return sig
+
+gpgGuard :: (MonadIO m, MonadPlus m) => String -> Bool -> m ()
+gpgGuard reason p = case p of
+    True -> return ()
+    False -> liftIO (errorM "Pontarius.Xmpp" reason) >> mzero
 
 verifyGPG :: PSState
           -> Xmpp.Jid
@@ -186,10 +191,8 @@ verifyGPG :: PSState
           -> IO Bool
 verifyGPG st peer kid sig txt = liftM (fromMaybe False) . runMaybeT $ do
     -- Firstly check that we have the pubkey on file for that key
-    mbKey <- liftIO  . runPSM st $ getPeerIdent peer
-    case mbKey of
-        Nothing -> mzero
-        Just kid' -> guard $ kid == (fromKeyID kid')
+    keys <- liftIO  . runPSM st $ getPeerIdents peer
+    guard $ (toKeyID kid) `elem` keys
     liftIO $ do
         ctx <- Gpg.ctxNew Nothing
         debugM "Pontarius.Xmpp" $
@@ -200,13 +203,19 @@ verifyGPG st peer kid sig txt = liftM (fromMaybe False) . runMaybeT $ do
                 errorM "Pontarius.Xmpp"
                     $ "Verifying signature threw exception" ++ show e
                 return False
-            Right res | all (goodStat . Gpg.status) res -> do
-                infoM "Pontarius.Xmpp" "Signature seems good."
-                debugM "Pontarius.Xmpp" $ "result: " ++ show res
+            Right [st] -> do
+                gpgGuard ("could not verify signature: " ++ show st)
+                    (goodStat $ Gpg.status st)
+                gpgGuard ("Fingerpringt doesn't match: " ++ show kid
+                           ++ " /= " ++ show (Gpg.fingerprint st))
+                         (Gpg.fingerprint st == kid)
+                debugM "Pontarius.Xmpp" $ "Signature seems good"
                 return True
-                      | otherwise -> do
-                warningM "Pontarius.Xmpp" $ "Signature problem: " ++ show res
+            Right _ -> do
+                debugM "Pontarius.Xmpp" "multiple signature results"
+
                 return False
+
   where
     goodStat Gpg.SigStatGood = True
     goodStat _ = False

@@ -13,7 +13,6 @@ import           Control.Lens
 import           Data.Text (Text)
 import           Data.Time.Clock
 import           Data.UUID (UUID)
-import qualified Data.UUID as UUID
 import           Database.Persist
 import           Database.Persist.Quasi
 import           Database.Persist.TH

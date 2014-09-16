@@ -15,11 +15,12 @@ import           Control.Monad.IO.Class
 import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Resource
+import           Control.Monad.Trans.Maybe
 import qualified Data.Foldable as Foldable
+import           Data.Maybe
 import           Data.Text (Text)
 import           Data.Time.Clock
 import           Data.UUID (UUID)
-import qualified Data.UUID as UUID
 import qualified Data.UUID.V4 as UUID
 import           Database.Persist
 import           Database.Persist.Sqlite
@@ -78,24 +79,24 @@ addPubIdent keyID = do
 associatePubIdent :: MonadIO m => Xmpp.Jid -> KeyID -> PSM m Bool
 associatePubIdent peer keyID = runDB $ do
     mbKey <- getBy $ UniquePubIdentKey keyID
+    now <- liftIO $ getCurrentTime
     case mbKey of
         Nothing -> return False
         Just key -> do
-            _ <- upsert (PeerPubIdent peer (entityKey key)) []
+            _ <- upsert (PeerPubIdent peer (entityKey key) now Active) []
             return True
 
-getPeerIdent :: MonadIO m => Xmpp.Jid -> PSM m (Maybe KeyID)
-getPeerIdent peer = runDB $ do
-    mbKey <- getBy $ UniquePeerPubIdent peer
-    case mbKey of
-        Nothing -> return Nothing
-        Just pubIdent -> do
-            mbPubIdent <- get (peerPubIdentIdent $ entityVal pubIdent)
-            case mbPubIdent of
-                Nothing -> return Nothing
-                Just pi | Nothing <- pubIdentRevoked pi
-                                -> return . Just $ pubIdentKeyID pi
-                        | otherwise -> return Nothing
+-- | Get all public keys associated with the JID
+getPeerIdents :: MonadIO m => Xmpp.Jid -> PSM m [KeyID]
+getPeerIdents peer = runDB $ do
+    pids <- selectList [PeerPubIdentPeer ==. peer] []
+    fmap catMaybes . forM pids $ \pubIdent -> do
+        mbPubIdent <- get (peerPubIdentIdent $ entityVal pubIdent)
+        case mbPubIdent of
+            Nothing -> return Nothing
+            Just pi | Nothing <- pubIdentRevoked pi
+                            -> return . Just $ pubIdentKeyID pi
+                    | otherwise -> return Nothing
 
 
 runDB :: MonadIO m => SqlPersistT (LoggingT (ResourceT IO)) b -> PSM m b
@@ -138,14 +139,34 @@ setChallengeCompleted peer trust = runDB $ do
                                 ]
 
 
-getChallenges :: (MonadIO m, Functor m) => PSM m [Challenge]
-getChallenges = map entityVal <$>
-                  runDB (selectList [ChallengeHidden ==. False]
-                                    [Asc ChallengeStarted])
+getChallenges :: (MonadIO m, Functor m) => Xmpp.Jid -> PSM m [Challenge]
+getChallenges peer
+    = map entityVal <$> runDB (selectList
+                               [ ChallengeHidden ==. False
+                               , ChallengePeer ==. (Xmpp.toBare peer)
+                               ]
+                               [Asc ChallengeStarted])
 
 hideChallenge :: MonadIO m => UUID -> PSM m ()
 hideChallenge challengeID = runDB $ do
-    mbChal <- getBy $ UniqueChallenge challengeID
-    Foldable.forM_ mbChal $
-        \chal -> upsert (entityVal chal){challengeHidden = True} []
+    updateWhere [ChallengeUniqueID ==. challengeID] [ChallengeHidden =. True]
     return ()
+
+revokeIdentity :: MonadIO m => KeyID -> ReaderT SqlBackend m ()
+revokeIdentity keyID = do
+    now <- liftIO getCurrentTime
+    updateWhere [PubIdentKeyID ==. keyID] [PubIdentRevoked =. Just now]
+
+haveKey :: MonadIO m => KeyID -> PSM m Bool
+haveKey kid = runDB $ do
+    res <- getBy (UniquePubIdentKey kid)
+    return $ maybe False (const True) res
+
+-- | Check whether a key is associated with an identity
+checkPeerKey :: (MonadIO m, Functor m) => Xmpp.Jid -> KeyID -> PSM m Bool
+checkPeerKey peer kid = fmap (fromMaybe False) . runDB $ runMaybeT  $ do
+    (Entity pidk pid) <- MaybeT $ getBy (UniquePubIdentKey kid)
+    guard $ pubIdentRevoked pid == Nothing
+    (Entity _ ppid) <- MaybeT . getBy $ UniquePeerPubIdent peer pidk
+    guard $ peerPubIdentActive ppid == Active
+    return True

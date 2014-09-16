@@ -44,7 +44,6 @@ data AccountState = AccountEnabled
                   | AccountDisabled
                     deriving (Show, Eq)
 
-
 instance Representable UTCTime where
     type RepType UTCTime = 'DBusSimpleType TypeUInt32
     toRep = DBVUInt32 . round . utcTimeToPOSIXSeconds

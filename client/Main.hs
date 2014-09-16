@@ -168,13 +168,6 @@ peersPage con = withVBoxNew $ do
     timedButton "get available peers" 250000 $ do
         ps <- liftIO (throwME $ DBus.getProperty availableEntitiesP con :: IO [Text])
         liftIO $ setListWindow avPeersWindow ps
-    withVBoxNew $ do
-        peerKeyWindow <- packGrow $ listView "peer keys" (\_ -> return ())
-        timedButton "get keys from Selected" 500000 $ liftIO $ do
-            peers <- listWindowGetSelectedItems avPeersWindow
-            keyIDs <- forM peers $
-                     \peer -> (throwME $ getEntityPubkey peer con :: IO Text)
-            setListWindow peerKeyWindow (zip peers keyIDs)
     peerStatus <- labeledInput "peerStatus signal"
     liftIO $ addSignalHandler anySignal{matchMember = Just "peerStatusChanged"}
         mempty
@@ -214,20 +207,25 @@ peersPage con = withVBoxNew $ do
                  xs -> putStrLn $ "challenge signal type error" ++ show xs
         )
         con
+    return peersWindow
 
 
-challengesPage con = withVBoxNew $ do
+challengesPage peers con = withVBoxNew $ do
     challengesWindow <- listView "challenges" (\id -> return ())
     timedButton "getChallenges" 250000 $ liftIO $ do
-        chals <- throwME (getChallenges con)
-                    :: IO [(Text, Bool, Text, Text, Text, Bool)]
-        setListWindow challengesWindow chals
+        ps <- listWindowGetSelectedItems peers
+        case ps of
+             [] -> return ()
+             [(p, _)] -> do
+                 chals <- (throwME (getChallenges p con)
+                              :: IO [(Text, Text, Bool, Text, Text, Text, Bool)])
+                 setListWindow challengesWindow chals
 
 mkMainView signalChan con = fmap (toWidget . snd) . withNotebook $ do
     addPage "connection" $ connectionPage con
     addPage "identities" $ identitiesPage con
-    addPage "peers" $ peersPage con
-    addPage "challenges" $ challengesPage con
+    (identView, _) <- addPage "peers" $ peersPage con
+    addPage "challenges" $ challengesPage identView con
 
 main = do
     sChan <- newTChanIO

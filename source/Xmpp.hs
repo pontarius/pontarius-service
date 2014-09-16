@@ -124,9 +124,10 @@ makeE2ECallbacks kid = do
 -- change of state automatically sends an updating dbus signal and may block the
 -- following connection attempts
 tryConnect :: MonadIO m =>
-              PSState
+              ByteString
+           -> PSState
            -> m (Xmpp.Session, E2E.E2EContext)
-tryConnect st = runPSM st $ do
+tryConnect key st = runPSM st $ do
     mbCredentials <- getCredentials
     case mbCredentials of
         Just cred -> do
@@ -147,7 +148,7 @@ tryConnect st = runPSM st $ do
             cbs <- makeE2ECallbacks (fromKeyID kid)
             (e2ectx, e2eplugin) <-
                 liftIO $ E2E.e2eInit (E2E.E2EG E2E.e2eDefaultParameters
-                                      (E2E.PubKey "gpg" (fromKeyID kid)))
+                                      (E2E.PubKey "gpg" key))
                                       policy
                                       cbs
             mbSess <- liftIO $ Xmpp.session hostname
@@ -203,32 +204,38 @@ connector d st = do
         case a of
            AccountDisabled -> retry
            AccountEnabled -> readTMVar $ st ^. psDBusConnection
-    runPSM st $ setState Authenticating
-    mbSess <- liftIO . Ex.try $ tryConnect st
-    case mbSess of
-        Left e -> do
-            -- e :: XmppConnectionUpdate
-            debug $ "Connection failed. Waiting for " ++ show d ++ " seconds"
-            runPSM st $ signalConnectionState e
-            liftIO $ delay (d * 1000000)
-                -- avoid hammering the server, delay for a certain amount of
-                -- seconds
-            connector (nextDelay d) st
-        Right (sess, e2eCtx) -> do
-            sess' <- Xmpp.dupSession sess
-            (_, threads) <- runWriterT $ do
-                runHandler $ do
-                    st <- Xmpp.waitForPresence ((== Xmpp.Subscribe )
-                                                . Xmpp.presenceType ) sess'
-                    let Just fr = Xmpp.presenceTo st
-                        sig = Signal { signalPath = pontariusObjectPath
-                                     , signalInterface = pontariusInterface
-                                     , signalMember = "subscriptionRequest"
-                                     , signalBody = [DBV $ toRep fr]
-                                     }
-                    emitSignal sig con
-                runHandler $ Xmpp.runIQHandler (handlePubkeyRequest st) sess
-            return (sess, e2eCtx, threads)
+    mbKey <- liftIO $ exportSigningGpgKey st
+    case mbKey of
+        Nothing -> (runPSM st $ setState IdentityNotFound) >> connector d st
+        Just key -> do
+            runPSM st $ setState Authenticating
+            mbSess <- liftIO . Ex.try $ tryConnect key st
+            case mbSess of
+                Left e -> do
+                    -- e :: XmppConnectionUpdate
+                    debug $ "Connection failed. Waiting for " ++ show d
+                           ++ " seconds"
+                    runPSM st $ signalConnectionState e
+                    liftIO $ delay (d * 1000000)
+                        -- avoid hammering the server, delay for a certain
+                        -- amount of seconds
+                    connector (nextDelay d) st
+                Right (sess, e2eCtx) -> do
+                    sess' <- Xmpp.dupSession sess
+                    (_, threads) <- runWriterT $ do
+                        runHandler $ do
+                            st <- Xmpp.waitForPresence ((== Xmpp.Subscribe )
+                                                        . Xmpp.presenceType )
+                                                          sess'
+                            let Just fr = Xmpp.presenceTo st
+                                sig =
+                                    Signal { signalPath = pontariusObjectPath
+                                           , signalInterface = pontariusInterface
+                                           , signalMember = "subscriptionRequest"
+                                           , signalBody = [DBV $ toRep fr]
+                                           }
+                            emitSignal sig con
+                    return (sess, e2eCtx, threads)
 
   where
     -- Exponential back-off, we double the retry delay each time up to a total
@@ -372,58 +379,6 @@ startAKE :: Xmpp.Jid -> PSM (MethodHandlerT IO) Bool
 startAKE peer = do
     e2eCtx <- getE2EContext
     liftIO $ E2E.startE2E peer e2eCtx
-
-data PubkeyQuery = PubkeyQuery deriving Show
-
-xpPubkeyQuery :: PU [Node] ()
-xpPubkeyQuery = xpElemBlank "{yabasta-pubkey-1:0}pubkey-query"
-
-xpBase64 :: PU t Text -> PU t ByteString
-xpBase64 = xpWrap B64.decodeLenient B64.encode
-             . xpWrap Text.encodeUtf8 Text.decodeUtf8
-
-instance Xmpp.IQRequestClass PubkeyQuery where
-    data IQResponseType PubkeyQuery =
-        PubkeyResponse {fromPubkeyResponse :: BS.ByteString}
-    pickleRequest  = xpRoot . xpUnliftElems . xpConst PubkeyQuery
-                       $ xpElemBlank "{yabasta-pubkey-1:0}pubkey-query"
-    pickleResponse = xpUnliftElems .
-                     xpElemNodes "{yabasta-pubkey-1:0}pubkey-response" .
-                       xpWrap PubkeyResponse fromPubkeyResponse .
-                         xpBase64 $ xpContent xpId
-    requestType _ = Xmpp.Get
-    requestNamespace _ = "yabasta-pubkey-1:0"
-
-handlePubkeyRequest :: PSState -> Xmpp.IQRequestHandler PubkeyQuery
-handlePubkeyRequest st _req = do
-    mbKey <- exportSigningGpgKey st
-    case mbKey of
-        Nothing -> return . Left $ Xmpp.mkStanzaError Xmpp.ItemNotFound
-        Just key -> return . Right $ PubkeyResponse key
-
-requestPubkey :: (MonadIO m, Functor m) =>
-                 Xmpp.Jid
-              -> PSM m (Maybe BS.ByteString)
-requestPubkey peer = do
-    st <- PSM ask
-    mbSess <- liftIO . atomically $ Just <$> getSessionSTM st
-                                    <|> return Nothing
-    case mbSess of
-     Nothing -> do
-         debug "requestPubkey: not connected"
-         return Nothing
-     Just sess -> do
-         resp <- liftIO . runExceptT $
-                     Xmpp.sendIQRequest (Just 10000000)
-                                        (Just peer) PubkeyQuery sess
-         case resp of
-             Left e -> do
-                 debug $ "requestPubkey returned error: " ++ show e
-                 return Nothing
-             Right (Left e) -> do
-                 debug $ "requestPubkey returned error: " ++ show e
-                 return Nothing
-             Right (Right r) -> listToMaybe <$> importIdent (fromPubkeyResponse r)
 
 verifyChannel :: Xmpp.Jid
               -> Text

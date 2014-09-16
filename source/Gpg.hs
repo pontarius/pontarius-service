@@ -211,6 +211,9 @@ verifyGPG st peer kid sig txt = liftM (fromMaybe False) . runMaybeT $ do
                          (Gpg.fingerprint st == kid)
                 debugM "Pontarius.Xmpp" $ "Signature seems good"
                 return True
+            Right [] -> do
+                errorM "Pontarius.Xmpp" "verifyGPG: Could not import pubkey"
+                return False
             Right _ -> do
                 debugM "Pontarius.Xmpp" "multiple signature results"
 

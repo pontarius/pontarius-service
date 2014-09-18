@@ -10,7 +10,6 @@ module Gpg where
 import           Control.Applicative
 import qualified Control.Exception as Ex
 import           Control.Monad
-import           Control.Monad.Trans.Maybe
 import           Control.Monad.Reader
 import           DBus
 import qualified DBus.Types as DBus
@@ -21,7 +20,6 @@ import           Data.Monoid
 import           Data.Text (Text)
 import qualified Data.Text.Encoding as Text
 import qualified GpgMe as Gpg
-import qualified Network.Xmpp as Xmpp
 import           System.Log.Logger
 
 --import           Network.Xmpp.E2E
@@ -183,13 +181,11 @@ gpgGuard reason p = case p of
     True -> return ()
     False -> liftIO (errorM "Pontarius.Xmpp" reason) >> mzero
 
-verifyGPG :: PSState
-          -> Xmpp.Jid
-          -> ByteString
+verifyGPG :: ByteString
           -> ByteString
           -> ByteString
           -> IO Bool
-verifyGPG st peer kid sig txt = do
+verifyGPG kid sig txt = do
     ctx <- Gpg.ctxNew Nothing
     debug $ "Verifying signature "  ++ show sig ++ " for " ++ show txt
     res <- Ex.try $ Gpg.verifyDetach ctx txt sig -- Gpg.Error

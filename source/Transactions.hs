@@ -186,7 +186,7 @@ verifySignature st peer pk sig pt = runPSM st $ do
     ids <- importIdent pk
     case ids of
         [id] -> do
-            verified <- liftIO $ verifyGPG st peer id sig pt
+            verified <- liftIO $ verifyGPG id sig pt
             debug $ "Signature is: "  ++ show verified
             case verified of
                 True -> do

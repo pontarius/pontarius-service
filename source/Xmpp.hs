@@ -22,17 +22,13 @@ import           DBus
 import           DBus.Signal
 import           DBus.Types
 import           Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Base64 as B64
 import           Data.Data
+import qualified Data.Foldable as Foldable
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Text.Encoding as Text
-import           Data.XML.Pickle
-import           Data.XML.Types
 import qualified Network.TLS as TLS
 import qualified Network.Xmpp as Xmpp
 import qualified Network.Xmpp.E2E as E2E
@@ -41,6 +37,7 @@ import           Persist
 
 import           Basic
 import           Gpg
+import           Signals
 import           Transactions
 import           Types
 
@@ -76,41 +73,17 @@ makeE2ECallbacks :: (MonadReader PSState m, MonadIO m) =>
 makeE2ECallbacks kid = do
     st <- ask
     con <- liftIO . atomically . readTMVar =<< view psDBusConnection
-    let trustStatusSignal peer status
-            = Signal { signalPath = pontariusObjectPath
-                     , signalInterface = pontariusInterface
-                     , signalMember = "peerTrustStatusChanged"
-                     , signalBody = [ DBV $ toRep peer
-                                    , DBV . toRep $ tShow status
-                                    ]
-                     }
-        peerStatusSignal peer status
-            = Signal { signalPath = pontariusObjectPath
-                     , signalInterface = pontariusInterface
-                     , signalMember = "peerStatusChanged"
-                     , signalBody = [ DBV $ toRep peer
-                                    , DBV . toRep $ tShow status
-                                    ]
-                     }
-        receivedChallengeSignal peer mbQuestion
-            = Signal { signalPath = pontariusObjectPath
-                     , signalInterface = pontariusInterface
-                     , signalMember = "receivedChallenge"
-                     , signalBody = [ DBV $ toRep peer
-                                    , DBV . toRep $ fromMaybe "" mbQuestion
-                                    ]
-                     }
-
     return E2E.E2EC { E2E.onSendMessage = \_ _ -> return ()
                     , E2E.onStateChange =
-                       \p s -> emitSignal (peerStatusSignal p s ) con
+                       \p s -> emitSignal peerStatusChangedSignal (p, tShow s) con
                     , E2E.onSmpChallenge = \p q -> do
                            -- TODO: Select Session ID
                            runPSM st $ addChallenge p "todo" False q
-                           emitSignal (receivedChallengeSignal p q) con
+                           let q' = maybe "" id q
+                           emitSignal receivedChallengeSignal (p, q') con
                     , E2E.onSmpAuthChange = \p s -> do
                            runPSM st $ setChallengeCompleted p s
-                           emitSignal (trustStatusSignal p s) con
+                           emitSignal peerTrustStatusChangedSignal (p, s) con
                     , E2E.cSign = signGPG kid
                     , E2E.cVerify =
                        \p pk sig txt -> verifySignature st p (E2E.pubKeyData pk)
@@ -156,6 +129,7 @@ tryConnect key st = runPSM st $ do
                           (def & Xmpp.tlsUseNameIndicationL .~ True
                                & osc .~ (\_ _ _ _ -> return [])
                                & Xmpp.pluginsL .~ [e2eplugin]
+                               & Xmpp.onPresenceChangeL .~ Just opc
                           )
             case mbSess of
                 Left e -> do
@@ -174,6 +148,16 @@ tryConnect key st = runPSM st $ do
             liftIO . Ex.throwIO $
                 ConnectionError "Connection credentials are unset."
   where
+    opc peer old new = do
+        con <- liftIO . atomically . readTMVar $ view psDBusConnection st
+        let st = case (old, new) of
+             (Xmpp.PeerAvailable{}, Xmpp.PeerUnavailable) -> Just "unavailable"
+             (Xmpp.PeerUnavailable, Xmpp.PeerAvailable{}) -> Just "available"
+             _ -> Nothing :: Maybe Text
+        Foldable.forM_ st $ \s -> emitSignal peerStatusChangedSignal (peer, s) con
+
+
+
     clientHooksL = lens TLS.clientHooks (\cp ch -> cp{TLS.clientHooks = ch})
     onServerCertificateL = lens TLS.onServerCertificate
                                 (\ch osc-> ch {TLS.onServerCertificate = osc})
@@ -228,13 +212,7 @@ connector d st = do
                                                         . Xmpp.presenceType )
                                                           sess'
                             let Just fr = Xmpp.presenceTo st
-                                sig =
-                                    Signal { signalPath = pontariusObjectPath
-                                           , signalInterface = pontariusInterface
-                                           , signalMember = "subscriptionRequest"
-                                           , signalBody = [DBV $ toRep fr]
-                                           }
-                            emitSignal sig con
+                            emitSignal subscriptionRequestSignal fr con
                     return (sess, e2eCtx, threads)
 
   where

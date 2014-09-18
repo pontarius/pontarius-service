@@ -144,15 +144,15 @@ makeRepresentable ''ChallengeEvent
 makeRepresentable ''RevocationEvent
 
 class Signaling m where
-    signals :: Signal -> m ()
+    signals :: SomeSignal -> m ()
 
 instance Signaling (MethodHandlerT IO) where
-    signals = signal
+    signals = signal'
 
 instance (MonadTrans t, MonadReader DBusConnection (t IO)) => Signaling (t IO) where
     signals s = do
         dbc <- ask
-        lift $ emitSignal s dbc
+        lift $ emitSignal' s dbc
 
 getDBusCon :: MonadIO m => PSM m (DBusConnection)
 getDBusCon = do

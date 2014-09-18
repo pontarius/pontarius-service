@@ -31,6 +31,7 @@ import qualified Network.Xmpp as Xmpp
 
 import           Basic
 import           Gpg
+import           Signals
 import           Transactions
 import           Types
 import           Xmpp
@@ -50,16 +51,6 @@ instance IsStub (MethodHandlerT IO a) where
 
 instance IsStub b => IsStub (a -> b) where
     stub = \_ -> stub
-
-pontariusProperty :: SingI t => Text -> Property t
-pontariusProperty name =
-    Property { propertyName = name
-             , propertyPath = pontariusObjectPath
-             , propertyInterface = pontariusInterface
-             , propertyGet = Just stub
-             , propertySet = Nothing
-             , propertyEmitsChangedSignal = PECSTrue
-             }
 
 instance DBus.Representable UUID where
     type RepType UUID = RepType Text
@@ -120,12 +111,6 @@ securityHistoryByKeyIdMethod =
      :> ResultDone
     )
 
-getChallengesMethod :: PSState -> DBus.Method
-getChallengesMethod st =
-    DBus.Method (DBus.repMethod $ runPSM st . getChallengesM)
-    "getChallenges" ("peer" :-> Result)
-     ( "challenges" :> ResultDone)
-
 removeChallengeMethod :: PSState -> DBus.Method
 removeChallengeMethod st =
     DBus.Method (DBus.repMethod $ runPSM st . removeChallenge)
@@ -134,15 +119,19 @@ removeChallengeMethod st =
     ResultDone
 
 
-initialize :: PSState -> IO PontariusState
-initialize st = runPSM st $ liftIO . atomically . readTVar =<< view psState
+initialize st = do
+    let stateRef = view psState st
+    atomically $ do
+        s <- readTVar stateRef
+        ps <- getPeersSTM st
+        return (s, ps)
 
 initializeMethod :: PSState -> Method
 initializeMethod st =
     DBus.Method
     (DBus.repMethod $ initialize st)
     "initialize" Result
-    ("result" :> ResultDone)
+    ("state" :> "peers" :> ResultDone)
 
 importKeyMethod :: Method
 importKeyMethod =
@@ -235,79 +224,6 @@ startAKEMethod st = Method (DBus.repMethod $ runPSM st . startAKE)
                     ("peer" :-> Result)
                     ("success" :> ResultDone)
 
-receivedChallengeSignal :: SignalInterface
-receivedChallengeSignal = SignalI { signalName = "receivedChallenge"
-                                  , signalArguments =
-                                      [ sArgument "peer"
-                                          (Proxy :: Proxy (RepType Xmpp.Jid))
-                                      , sArgument "question"
-                                          (Proxy :: Proxy (RepType Text))
-                                      ]
-
-                                  , signalAnnotations = []
-                                  }
-
-challengeResultSignal :: SignalInterface
-challengeResultSignal = SignalI { signalName = "challengeResult"
-                                , signalArguments =
-                                    [ sArgument "peer"
-                                      (Proxy :: Proxy (RepType Xmpp.Jid))
-                                    , sArgument "challenge_id"
-                                      (Proxy :: Proxy (RepType Text))
-                                    , sArgument "initiator"
-                                      (Proxy :: Proxy (RepType Text))
-                                    , sArgument "result"
-                                      (Proxy :: Proxy (RepType Bool))
-                                    ]
-                                , signalAnnotations = []
-                                }
-
-challengeTimeoutSignal :: SignalInterface
-challengeTimeoutSignal = SignalI { signalName = "challengeTimeout"
-                                , signalArguments =
-                                    [ sArgument "peer"
-                                      (Proxy :: Proxy (RepType Xmpp.Jid))
-                                    , sArgument "challenge_id"
-                                      (Proxy :: Proxy (RepType Text))
-                                    ]
-                                , signalAnnotations = []
-                                }
-
-peerStatusChangeSignal :: SignalInterface
-peerStatusChangeSignal = SignalI { signalName = "peerStatusChanged"
-                                 , signalArguments =
-                                    [ sArgument "peer"
-                                      (Proxy :: Proxy (RepType Xmpp.Jid))
-                                    ,  sArgument "status"
-                                      (Proxy :: Proxy (RepType Text))
-                                    ]
-                                , signalAnnotations = []
-                                }
-
-peerTrustStatusChangeSignal :: SignalInterface
-peerTrustStatusChangeSignal = SignalI { signalName = "peerTrustStatusChanged"
-                                      , signalArguments =
-                                          [ sArgument "peer"
-                                            (Proxy :: Proxy (RepType Xmpp.Jid))
-                                          ,  sArgument "trust_status"
-                                             (Proxy :: Proxy (RepType Text))
-                                          ]
-                                      , signalAnnotations = []
-                                      }
-
-subscriptionRequestSignal :: SignalInterface
-subscriptionRequestSignal = SignalI { signalName = "subscriptionRequest"
-                                    , signalArguments =
-                                        [ sArgument "peer"
-                                          (Proxy :: Proxy (RepType Xmpp.Jid))
-                                        ]
-                                    , signalAnnotations = []
-                                    }
-
-unavailanbleEntitiesProperty :: Property (RepType [Ent])
-unavailanbleEntitiesProperty = pontariusProperty "UnvailableEntities"
-
-
 
 ----------------------------------------------------
 -- Objects
@@ -325,7 +241,6 @@ xmppInterface st = Interface
                 , revokeIdentityMethod
                 , initiateChallengeMethod st
                 , respondChallengeMethod st
-                , getChallengesMethod st
                 , removeChallengeMethod st
                 , getTrustStatusMethod
                 , addPeerMethod st
@@ -336,15 +251,13 @@ xmppInterface st = Interface
                 , getCredentialsMethod st
                 , startAKEMethod st
                 ] []
-                [ receivedChallengeSignal
-                , challengeResultSignal
-                , challengeTimeoutSignal
-                , peerStatusChangeSignal
-                , peerTrustStatusChangeSignal
-                , subscriptionRequestSignal
+                [ SSD receivedChallengeSignal
+                , SSD challengeResultSignal
+                , SSD peerStatusChangedSignal
+                , SSD peerTrustStatusChangedSignal
+                , SSD subscriptionRequestSignal
                 ]
-                [ SomeProperty unavailanbleEntitiesProperty
-                , SomeProperty $ identityProp st
+                [ SomeProperty $ identityProp st
                 ]
 
 

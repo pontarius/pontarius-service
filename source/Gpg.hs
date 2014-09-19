@@ -173,7 +173,7 @@ signGPG kid bs = liftIO $ do
         [] -> error "key does not exist" -- return Nothing
         (p:_) -> do
             sig <- Gpg.sign ctx bs p Gpg.SigModeDetach
-            debug $ "Signing " ++ show bs ++ " yielded " ++ show sig
+            logDebug $ "Signing " ++ show bs ++ " yielded " ++ show sig
             return sig
 
 gpgGuard :: (MonadIO m, MonadPlus m) => String -> Bool -> m ()
@@ -187,7 +187,7 @@ verifyGPG :: ByteString
           -> IO Bool
 verifyGPG kid sig txt = do
     ctx <- Gpg.ctxNew Nothing
-    debug $ "Verifying signature "  ++ show sig ++ " for " ++ show txt
+    logDebug $ "Verifying signature "  ++ show sig ++ " for " ++ show txt
     res <- Ex.try $ Gpg.verifyDetach ctx txt sig -- Gpg.Error
     case res of
         Left (e :: Gpg.Error) -> do

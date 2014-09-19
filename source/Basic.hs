@@ -12,5 +12,8 @@ pontariusObjectPath = "/pontarius"
 pontariusInterface :: Text
 pontariusInterface = "org.pontarius"
 
-debug :: MonadIO m => String -> m ()
-debug = liftIO . debugM "Pontarius.Xmpp"
+logDebug :: MonadIO m => String -> m ()
+logDebug = liftIO . debugM "Pontarius.Xmpp.Service"
+
+logError :: MonadIO m => String -> m ()
+logError = liftIO . errorM "Pontarius.Xmpp.Service"

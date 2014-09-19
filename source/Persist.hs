@@ -1,3 +1,4 @@
+{-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -11,13 +12,11 @@ module Persist
 import           Control.Applicative
 import           Control.Concurrent.STM
 import           Control.Lens
-import           Control.Monad.IO.Class
+import           Control.Monad.Except
 import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Resource
-import           Control.Monad.Trans.Maybe
 import qualified Data.Foldable as Foldable
-import           Data.Maybe
 import           Data.Text (Text)
 import           Data.Time.Clock
 import           Data.UUID (UUID)
@@ -75,28 +74,6 @@ addPubIdent keyID = do
     now <- liftIO $ getCurrentTime
     _ <- runDB $ insertUnique (PubIdent "gpg" keyID Nothing Nothing now (Just now))
     return ()
-
-associatePubIdent :: MonadIO m => Xmpp.Jid -> KeyID -> PSM m Bool
-associatePubIdent peer keyID = runDB $ do
-    mbKey <- getBy $ UniquePubIdentKey keyID
-    now <- liftIO $ getCurrentTime
-    case mbKey of
-        Nothing -> return False
-        Just key -> do
-            _ <- upsert (PeerPubIdent peer (entityKey key) now Active) []
-            return True
-
--- | Get all public keys associated with the JID
-getPeerIdents :: MonadIO m => Xmpp.Jid -> PSM m [KeyID]
-getPeerIdents peer = runDB $ do
-    pids <- selectList [PeerPubIdentPeer ==. peer] []
-    fmap catMaybes . forM pids $ \pubIdent -> do
-        mbPubIdent <- get (peerPubIdentIdent $ entityVal pubIdent)
-        case mbPubIdent of
-            Nothing -> return Nothing
-            Just pi | Nothing <- pubIdentRevoked pi
-                            -> return . Just $ pubIdentKeyID pi
-                    | otherwise -> return Nothing
 
 
 runDB :: MonadIO m => SqlPersistT (LoggingT (ResourceT IO)) b -> PSM m b
@@ -162,11 +139,50 @@ haveKey kid = runDB $ do
     res <- getBy (UniquePubIdentKey kid)
     return $ maybe False (const True) res
 
--- | Check whether a key is associated with an identity
-checkPeerKey :: (MonadIO m, Functor m) => Xmpp.Jid -> KeyID -> PSM m Bool
-checkPeerKey peer kid = fmap (fromMaybe False) . runDB $ runMaybeT  $ do
-    (Entity pidk pid) <- MaybeT $ getBy (UniquePubIdentKey kid)
-    guard $ pubIdentRevoked pid == Nothing
-    (Entity _ ppid) <- MaybeT . getBy $ UniquePeerPubIdent peer pidk
-    guard $ peerPubIdentActive ppid == Active
-    return True
+newContact :: MonadIO m => Text -> PSM m (Key Contact)
+newContact name = runDB $ do
+    contactID <- liftIO UUID.nextRandom
+    insert $ Contact contactID name
+
+renameContact :: MonadIO m => UUID -> Text -> PSM m ()
+renameContact contactID newName = runDB $ do
+    updateWhere [ContactUniqueID ==. contactID] [ContactName =. newName]
+
+addContactJid :: MonadIO m => UUID -> Xmpp.Jid -> (PSM m) (Either Text ())
+addContactJid contactID jid = runDB $ runExceptT $ do
+    mbContact <- lift $ getBy (UniqueContact contactID)
+    case mbContact of
+        Nothing -> throwError ("Contact not found" :: Text)
+        Just c -> void . lift . insert $ ContactJid (entityKey c) jid
+    return ()
+
+removeContactJid :: MonadIO m => Xmpp.Jid -> PSM m ()
+removeContactJid jid = runDB $ do
+    deleteBy $ UniqueContactJid jid
+
+addContactIdentity :: MonadIO m =>
+                      UUID
+                   -> KeyID
+                   -> PSM m (Either Text (Key ContactIdentity))
+addContactIdentity contactID ident = runDB $ runExceptT $  do
+    mbContact <- lift $ getBy (UniqueContact contactID)
+    case mbContact of
+        Nothing -> throwError ("Contact not found" :: Text)
+        Just c -> lift $ insert $ ContactIdentity (entityKey c) ident
+
+removeContactIdentity :: MonadIO m => KeyID -> PSM m ()
+removeContactIdentity id = runDB $ do
+    deleteBy $ UniqueContactIdentity id
+
+getContactByIdentity :: MonadIO m =>
+                        KeyID
+                     -> PSM m (Maybe (Entity ContactIdentity))
+getContactByIdentity id =
+    runDB $ getBy (UniqueContactIdentity id)
+
+getIdentityContact :: MonadIO m => KeyID -> PSM m (Maybe Contact)
+getIdentityContact keyID = runDB $ do
+    mbContactId <- getBy (UniqueContactIdentity keyID)
+    case mbContactId of
+        Nothing -> return Nothing
+        Just ct -> get (contactIdentityContact $ entityVal ct)

@@ -27,7 +27,7 @@ updateState = do
     -- | If a condition that triggers a state transition is found we immediately
     -- return it with left.
     eNewState <- runEitherT $ do
-        liftIO . debug . show =<< lift getCredentials
+        liftIO . logDebug . show =<< lift getCredentials
         getCredentials `orIs` (Just CredentialsUnset)
         lift getSigningKey  >>= \case
             Nothing -> liftIO getIdentities >>= \case
@@ -66,7 +66,7 @@ updateState = do
 synchronousCreateGpgKey :: (MonadIO m, Functor m) =>
                           PSM (MethodHandlerT m) BS.ByteString
 synchronousCreateGpgKey = do
-    liftIO $ debug "Creating new identity"
+    liftIO $ logDebug "Creating new identity"
     sem <- view psGpgCreateKeySempahore
     tid <- liftIO myThreadId
     liftIO (atomically $ tryPutTMVar sem tid) >>= \case
@@ -78,7 +78,7 @@ synchronousCreateGpgKey = do
             setState CreatingIdentity
             keyFpr <- liftIO newGpgKey
             now <- liftIO $ getCurrentTime
-            liftIO $ debug "Done creating new key"
+            liftIO $ logDebug "Done creating new key"
             addIdentity "gpg" (toKeyID keyFpr) (Just now) Nothing
             as <- view psAccountState
             liftIO (atomically (readTVar as)) >>= \case
@@ -89,13 +89,13 @@ synchronousCreateGpgKey = do
 
 createGpgKey :: MonadIO m => EitherT (Maybe PontariusState) (PSM m) ()
 createGpgKey = do
-    liftIO $ debug "Creating new key"
+    liftIO $ logDebug "Creating new key"
     sem <- view psGpgCreateKeySempahore
     st <- ask
     void . liftIO . forkIO . runPSM st $ do
         tid <- liftIO myThreadId
         liftIO (atomically $ tryPutTMVar sem tid) >>= \case
-            False -> liftIO $ debug "Another thread is already creating a new key"
+            False -> liftIO $ logDebug "Another thread is already creating a new key"
             True -> do
 
                 return ()
@@ -182,17 +182,13 @@ verifySignature :: MonadIO m =>
                 -> BS.ByteString
                 -> BS.ByteString
                 -> m Bool
-verifySignature st peer pk sig pt = runPSM st $ do
+verifySignature st _peer pk sig pt = runPSM st $ do
     ids <- importIdent pk
     case ids of
         [id] -> do
             verified <- liftIO $ verifyGPG id sig pt
-            debug $ "Signature is: "  ++ show verified
-            case verified of
-                True -> do
-                    _ <- associatePubIdent peer $ toKeyID id
-                    return True
-                False -> return False
+            logDebug $ "Signature is: "  ++ show verified
+            return verified
         _ -> do
-            debug "import resulted in more than one key"
+            logDebug "import resulted in more than one key"
             return False

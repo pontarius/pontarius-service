@@ -15,12 +15,9 @@ import           Control.Concurrent.STM
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
-import           Control.Monad.Trans
 import           DBus as DBus
 import           DBus.Types
 import           Data.ByteString (ByteString)
-import           Data.Proxy
-import           Data.Singletons
 import           Data.String
 import           Data.Text (Text)
 import qualified Data.Text as Text
@@ -212,19 +209,6 @@ setIdentityMethod st =
                 ("keyID" :-> Result)
                 ResultDone
 
-sArgument :: SingI t => Text -> Proxy (t :: DBusType) -> SignalArgument
-sArgument name (Proxy :: Proxy (t :: DBusType)) =
-    SignalArgument { signalArgumentName = name
-                   , signalArgumentType = fromSing (sing :: Sing t)
-                   }
-
-startAKEMethod :: PSState -> Method
-startAKEMethod st = Method (DBus.repMethod $ runPSM st . startAKE)
-                    "startAKE"
-                    ("peer" :-> Result)
-                    ("success" :> ResultDone)
-
-
 ----------------------------------------------------
 -- Objects
 ----------------------------------------------------
@@ -249,7 +233,6 @@ xmppInterface st = Interface
                 , getIdentitiesMethod
                 , setCredentialsMethod st
                 , getCredentialsMethod st
-                , startAKEMethod st
                 ] []
                 [ SSD receivedChallengeSignal
                 , SSD challengeResultSignal

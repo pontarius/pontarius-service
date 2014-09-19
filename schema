@@ -21,15 +21,6 @@ PubIdent
     imported UTCTime Maybe
     UniquePubIdentKey keyID
 
--- Mark a Jid as belonging to a pubident
-PeerPubIdent
-    peer Jid
-    ident PubIdentId
-    -- When did the peer first complete an AKE using this key
-    activated UTCTime
-    active Checkmark nullable
-    UniquePeerPubIdent peer ident
-
 -- Store details about received revocations of public identities.
 Revocation
     sessionID SessionID Maybe
@@ -71,3 +62,18 @@ HostCredentials
     username Text
     password Text
     changed UTCTime Desc
+
+Contact
+    uniqueID UUID Eq
+    name Text
+    UniqueContact uniqueID
+
+ContactJid
+    contact ContactId
+    jid Jid
+    UniqueContactJid jid
+
+ContactIdentity
+    contact ContactId
+    identity KeyID
+    UniqueContactIdentity identity

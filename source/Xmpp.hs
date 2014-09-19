@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -16,24 +17,28 @@ import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Except
+import           Control.Monad.Trans.Maybe
 import           Control.Monad.Reader
 import           Control.Monad.Writer
+import qualified Crypto.Hash.SHA256 as SHA256
 import           DBus
 import           DBus.Signal
 import           DBus.Types
 import           Data.ByteString (ByteString)
 import           Data.Data
-import qualified Data.Foldable as Foldable
+import           Data.Function
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.Encoding as Text
 import qualified Network.TLS as TLS
 import qualified Network.Xmpp as Xmpp
 import qualified Network.Xmpp.E2E as E2E
 import qualified Network.Xmpp.IM as Xmpp
 import           Persist
+import           System.Random
 
 import           Basic
 import           Gpg
@@ -51,6 +56,9 @@ instance Ex.Exception XmppConnectionUpdate
 
 tShow :: Show a => a -> Text
 tShow = Text.pack . show
+
+showJid :: Xmpp.Jid -> String
+showJid = Text.unpack . Xmpp.jidToText
 
 runHandler :: (MonadWriter [ThreadId] m, MonadIO m) => IO () -> m ()
 runHandler m = do
@@ -107,7 +115,7 @@ tryConnect key st = runPSM st $ do
             let hostname = Text.unpack $ hostCredentialsHostname cred
                 username = hostCredentialsUsername cred
                 password = hostCredentialsPassword cred
-            debug $ "Trying to connect to " ++ show hostname
+            logDebug $ "Trying to connect to " ++ show hostname
                                         ++ " as " ++ show username
             mbKid <- getSigningKey
             kid <- case mbKid of
@@ -150,20 +158,67 @@ tryConnect key st = runPSM st $ do
   where
     opc peer old new = do
         con <- liftIO . atomically . readTMVar $ view psDBusConnection st
-        let st = case (old, new) of
-             (Xmpp.PeerAvailable{}, Xmpp.PeerUnavailable) -> Just "unavailable"
-             (Xmpp.PeerUnavailable, Xmpp.PeerAvailable{}) -> Just "available"
-             _ -> Nothing :: Maybe Text
-        Foldable.forM_ st $ \s -> emitSignal peerStatusChangedSignal (peer, s) con
-
-
-
+        case (old, new) of
+             (Xmpp.PeerAvailable{}, Xmpp.PeerUnavailable) -> peerOffline peer
+             (Xmpp.PeerUnavailable, Xmpp.PeerAvailable{}) -> ake st peer
+             _ -> return ()
+    peerOffline p = undefined -- TODO
     clientHooksL = lens TLS.clientHooks (\cp ch -> cp{TLS.clientHooks = ch})
     onServerCertificateL = lens TLS.onServerCertificate
                                 (\ch osc-> ch {TLS.onServerCertificate = osc})
     osc = Xmpp.streamConfigurationL . Xmpp.tlsParamsL
             . clientHooksL . onServerCertificateL
     policy _peer = return $ Just True -- TODO: cross-check with DB
+
+ake :: PSState -> Xmpp.Jid -> IO ()
+ake st them = liftM (maybe () id) . runMaybeT $ do
+    (xmppCon, ctx) <- (liftIO . atomically . readTVar $ view psXmppCon st)
+                      >>= \case
+         XmppConnected c ctx _ -> return (c, ctx)
+         _ -> do
+             logError "Xmpp connection not established"
+             mzero
+    we <- liftIO (Xmpp.getJid xmppCon) >>= \case
+        Just w -> return w
+        Nothing -> do
+            logError "No local JID set"
+            mzero
+    let doStartAke = jidHash we them <= jidHash them we
+    liftIO $ when doStartAke (go ctx)
+  where
+    jidHash j1 j2 = SHA256.hash $
+                      (mappend `on` Text.encodeUtf8 . Xmpp.jidToText) j1 j2
+    go ctx = do
+
+        mbAke <- E2E.startE2E them ctx
+        case mbAke of
+            Right () -> return ()
+            Left (E2E.AKESendError e) -> do
+                logError $ "AKE with " ++ Text.unpack (Xmpp.jidToText them) ++
+                    " could not be established because " ++ show e
+                return ()
+            Left (E2E.AKEIQError iqe) ->
+                case iqe ^. errCond of
+                    Xmpp.Conflict -> do
+                        -- Wait for 5 to 10 seconds and try again
+                        wait <- randomRIO (5, 10)
+                        delay (wait * 1000000)
+                        go ctx
+                    -- Entity doesn't support AKE:
+                    Xmpp.ServiceUnavailable -> return ()
+                    -- Something went wrong
+                    Xmpp.BadRequest -> do
+                        logError $ "AKE with " ++ showJid them ++ " failed: "
+                            ++ show (Xmpp.stanzaErrorText
+                                       $ iqe ^. Xmpp.stanzaError)
+
+                    _ -> logError $ "AKE failed: " ++ show iqe
+            Left (E2E.AKEError e) -> do
+                logError $ "Error during AKE: " ++ show e
+                return ()
+
+
+    errCond = Xmpp.stanzaError . Xmpp.stanzaErrorConditionL
 
 -- | Try to establish a connection to the server. If the connection fails
 -- another attempt is made after a (exponentially increasing) grace period. This
@@ -197,7 +252,7 @@ connector d st = do
             case mbSess of
                 Left e -> do
                     -- e :: XmppConnectionUpdate
-                    debug $ "Connection failed. Waiting for " ++ show d
+                    logDebug $ "Connection failed. Waiting for " ++ show d
                            ++ " seconds"
                     runPSM st $ signalConnectionState e
                     liftIO $ delay (d * 1000000)
@@ -353,7 +408,7 @@ getAvailableXmppPeersSTM st = do
     sess <- getSessionSTM st
     Xmpp.getAvailablePeers sess
 
-startAKE :: Xmpp.Jid -> PSM (MethodHandlerT IO) Bool
+startAKE :: Xmpp.Jid -> PSM (MethodHandlerT IO) (Either E2E.AKEError ())
 startAKE peer = do
     e2eCtx <- getE2EContext
     liftIO $ E2E.startE2E peer e2eCtx

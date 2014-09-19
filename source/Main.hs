@@ -8,7 +8,7 @@
 
 import           Control.Applicative
 import           Control.Concurrent.STM
-import           Control.Monad.Logger
+import           Control.Monad.Logger hiding (logDebug)
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Resource
 import           DBus
@@ -31,9 +31,9 @@ main :: IO ()
 main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
     updateGlobalLogger "Pontarius.Xmpp" $ setLevel DEBUG
     updateGlobalLogger "DBus" $ setLevel DEBUG
-    debug "migrating"
+    logDebug "migrating"
     runResourceT $ flip runSqlPool pool $ runMigration migrateAll
-    debug "setting up state"
+    logDebug "setting up state"
     xmppConRef <- newTVarIO XmppNoConnection
     propertiesRef <- newEmptyTMVarIO
     pState <- newTVarIO CredentialsUnset
@@ -89,28 +89,28 @@ main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
                                 <> property usernameProp
                                 <> property peersProp
                                 <> property availableEntitiesProp
-    debug "connecting to dbus"
+    logDebug "connecting to dbus"
     con <- makeServer DBus.Session ro
-    debug "setting dbus session"
+    logDebug "setting dbus session"
     atomically $ putTMVar conRef con
-    debug "requesting dbus name"
+    logDebug "requesting dbus name"
     requestName "org.pontarius" def con >>= liftIO . \case
         PrimaryOwner -> return ()
         DBus.InQueue -> do
-            debug "dbus name is already taken"
+            logDebug "dbus name is already taken"
             exitSuccess
         DBus.Exists -> do
-            debug "dbus name is already taken"
+            logDebug "dbus name is already taken"
             exitSuccess
         DBus.AlreadyOwner -> do
-            debug "dbus server reports \"already owner\"?!?"
-    debug "setting up properties"
+            logDebug "dbus server reports \"already owner\"?!?"
+    logDebug "setting up properties"
     manageStmProperty statusProp getStatus con
     manageStmProperty enabledProp  getEnabled con
     manageStmProperty availableEntitiesProp (getAvailableXmppPeersSTM psState) con
     manageStmProperty peersProp (getPeersSTM psState) con
-    debug "updating state"
+    logDebug "updating state"
     runPSM psState updateState
-    debug "done updating state"
+    logDebug "done updating state"
 
     waitFor con

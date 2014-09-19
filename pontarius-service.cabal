@@ -33,6 +33,7 @@ executable pontarius-service
                , bytestring
                , containers >= 0.5.5.1
                , crypto-pubkey
+               , cryptohash >= 0.11
                , d-bus
                , either
                , exceptions >= 0.6
@@ -46,6 +47,7 @@ executable pontarius-service
                , pontarius-gpg
                , pontarius-xmpp
                , pontarius-xmpp-e2e
+               , random >= 1.0.1
                , resourcet >= 1.1.2.2
                , singletons >= 1.0
                , stm

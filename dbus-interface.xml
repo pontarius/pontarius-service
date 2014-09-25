@@ -37,7 +37,8 @@
         <arg name="key_id" type="ay" direction="out"/>
       </method>
       <method name="initialize">
-        <arg name="result" type="y" direction="out"/>
+        <arg name="state" type="y" direction="out"/>
+        <arg name="peers" type="a(sb)" direction="out"/>
       </method>
       <method name="markKeyVerified">
         <arg name="key-id" type="s" direction="in"/>
@@ -71,10 +72,6 @@
         <arg name="peer" type="s" direction="in"/>
         <arg name="secret" type="s" direction="in"/>
       </method>
-      <method name="getChallenges">
-        <arg name="peer" type="s" direction="in"/>
-        <arg name="challenges" type="a(ssbsssb)" direction="out"/>
-      </method>
       <method name="removeChallenge">
         <arg name="challenge_id" type="s" direction="in"/>
       </method>
@@ -103,10 +100,6 @@
       <method name="getCredentials">
         <arg name="username" type="s" direction="out"/>
       </method>
-      <method name="startAKE">
-        <arg name="peer" type="s" direction="in"/>
-        <arg name="success" type="b" direction="out"/>
-      </method>
       <signal name="receivedChallenge">
         <arg name="peer" type="s"/>
         <arg name="question" type="s"/>
@@ -117,22 +110,22 @@
         <arg name="initiator" type="s"/>
         <arg name="result" type="b"/>
       </signal>
-      <signal name="challengeTimeout">
-        <arg name="peer" type="s"/>
-        <arg name="challenge_id" type="s"/>
-      </signal>
-      <signal name="peerStatusChanged">
-        <arg name="peer" type="s"/>
-        <arg name="status" type="s"/>
+      <signal name="contactStatusChanged">
+        <arg name="contact" type="s"/>
+        <arg name="status" type="y"/>
       </signal>
       <signal name="peerTrustStatusChanged">
         <arg name="peer" type="s"/>
-        <arg name="trust_status" type="s"/>
+        <arg name="trust_status" type="b"/>
       </signal>
       <signal name="subscriptionRequest">
         <arg name="peer" type="s"/>
       </signal>
-      <property name="UnvailableEntities" type="a(sss)" access="read"/>
+      <signal name="unlinkedIdentityStatusChanged">
+        <arg name="identity" type="s"/>
+        <arg name="peer" type="s"/>
+        <arg name="status" type="y"/>
+      </signal>
       <property name="Identity" type="s" access="read"/>
       <property name="Status" type="y" access="read"/>
       <property name="AccountEnabled" type="b" access="readwrite"/>

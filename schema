@@ -67,6 +67,7 @@ Contact
     uniqueID UUID Eq
     name Text
     UniqueContact uniqueID
+    deriving Show Eq Ord
 
 ContactJid
     contact ContactId

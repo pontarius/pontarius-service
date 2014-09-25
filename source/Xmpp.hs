@@ -17,19 +17,23 @@ import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Except
-import           Control.Monad.Trans.Maybe
 import           Control.Monad.Reader
+import           Control.Monad.Trans.Maybe
 import           Control.Monad.Writer
 import qualified Crypto.Hash.SHA256 as SHA256
 import           DBus
 import           DBus.Signal
-import           DBus.Types
+import           DBus.Types hiding (logDebug, logError)
 import           Data.ByteString (ByteString)
 import           Data.Data
+import           Data.Either
 import           Data.Function
+import qualified Data.List as List
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
+import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
@@ -81,9 +85,8 @@ makeE2ECallbacks :: (MonadReader PSState m, MonadIO m) =>
 makeE2ECallbacks kid = do
     st <- ask
     con <- liftIO . atomically . readTMVar =<< view psDBusConnection
-    return E2E.E2EC { E2E.onSendMessage = \_ _ -> return ()
-                    , E2E.onStateChange =
-                       \p s -> emitSignal peerStatusChangedSignal (p, tShow s) con
+    return E2E.E2EC { E2E.onStateChange =
+                       \p os ns -> handleStateChange st con p os ns
                     , E2E.onSmpChallenge = \p q -> do
                            -- TODO: Select Session ID
                            runPSM st $ addChallenge p "todo" False q
@@ -94,10 +97,65 @@ makeE2ECallbacks kid = do
                            emitSignal peerTrustStatusChangedSignal (p, s) con
                     , E2E.cSign = signGPG kid
                     , E2E.cVerify =
-                       \p pk sig txt -> verifySignature st p (E2E.pubKeyData pk)
-                                                             sig txt
+                       \p pk sig txt ->
+                        fmap E2E.VerifyInfo <$>
+                          verifySignature st p (E2E.pubKeyData pk) sig txt
 
                     }
+
+handleStateChange st con j oldState newState = case (oldState, newState) of
+    (E2E.MsgStatePlaintext, E2E.MsgStateEncrypted vi)
+        -> setOnline st con j $ toKeyID (E2E.keyID vi)
+    (E2E.MsgStateFinished, E2E.MsgStateEncrypted vi)
+        -> setOnline st con j $ toKeyID (E2E.keyID vi)
+    (E2E.MsgStateEncrypted vi, E2E.MsgStatePlaintext)
+        -> setOffline st con j $ toKeyID (E2E.keyID vi)
+    (E2E.MsgStateEncrypted vi, E2E.MsgStateFinished)
+        -> setOffline st con j $ toKeyID (E2E.keyID vi)
+    _ -> return ()
+
+setOnline :: MonadIO m =>
+             PSState
+          -> DBusConnection
+          -> Xmpp.Jid
+          -> KeyID
+          -> m ()
+setOnline st con p kid = runPSM st $ do
+    mbContact <- getIdentityContact kid
+    case mbContact of
+        Nothing -> liftIO $
+                   emitSignal unlinkedIdentityAvailabilitySignal
+                              (kid, p, Available)
+                              con
+        Just c -> do
+            (cs, _) <- liftIO $ availableContacts st
+            -- | Check that the contact wasn't already online (i.e. with other
+            -- peers)
+            case Map.lookup c cs of
+                Just ps | Set.null (p `Set.delete` ps )
+                    -> liftIO $ emitSignal contactStatusChangedSignal
+                                           (contactUniqueID c, Available) con
+                _ -> return () -- Was already set online
+
+setOffline st con p kid = runPSM st $ do
+    mbContact <- getIdentityContact kid
+    case mbContact of
+        Nothing -> liftIO $
+                   emitSignal unlinkedIdentityAvailabilitySignal
+                              (kid, p, Unavailable)
+                              con
+        Just c -> do
+            (cs, _) <- liftIO $ availableContacts st
+            -- | Check that the contact wasn't already online (i.e. with other
+            -- peers)
+            case Map.lookup c cs of
+                Just ps | Set.null (p `Set.delete` ps )
+                    -> liftIO $ emitSignal contactStatusChangedSignal
+                                           (contactUniqueID c, Unavailable) con
+                _ -> return () -- Was already set offline or there are contacts
+                               -- remaining
+
+
 
 -- | Make a single attempt to connect to the xmpp server
 --
@@ -331,7 +389,7 @@ disableAccount = do
 getSession :: PSM (MethodHandlerT IO) Xmpp.Session
 getSession = do
     xc <- view psXmppCon
-    c <- liftIO . atomically $ readTVar xc
+    c <- liftIO $ readTVarIO xc
     case c of
         XmppConnected sess _ _ -> return sess
         _ -> lift $ methodError $ MsgError "org.pontarius.Error.Xmpp"
@@ -340,12 +398,20 @@ getSession = do
 getE2EContext :: PSM (MethodHandlerT IO) E2E.E2EContext
 getE2EContext = do
     xc <- view psXmppCon
-    c <- liftIO . atomically $ readTVar xc
+    c <- liftIO $ readTVarIO xc
     case c of
         XmppConnected _ ctx _ -> return ctx
         _ -> lift $ methodError $ MsgError "org.pontarius.Error.Xmpp"
                                       (Just $ "Not connected")
                                       []
+
+getE2EContextSTM :: PSState -> STM E2E.E2EContext
+getE2EContextSTM st = do
+    c <- readTVar (view psXmppCon st)
+    case c of
+        XmppConnected _ ctx _ -> return ctx
+        _ -> retry
+
 
 getSessionSTM :: PSState -> STM Xmpp.Session
 getSessionSTM st = do
@@ -434,3 +500,23 @@ respondChallenge peer secret = do
      Left e -> lift . methodError $ MsgError "pontarius.Xmpp.SMP"
                                          (Just $ tShow e) []
      Right r -> return r
+
+availableContacts :: PSState -> IO (Map Contact (Set Xmpp.Jid), [Xmpp.Jid])
+availableContacts st = do
+    sessions <- atomically $ do
+        c <- readTVar (view psXmppCon st)
+        case c of
+            XmppConnected _ ctx _ -> E2E.getSessions ctx
+            _ -> return Map.empty
+    -- "online" (i.e. authenticated) peers
+    let ops = mapMaybe isAuthenticated $ Map.toList sessions
+    (cs, noCs) <- fmap partitionEithers . forM ops $ \(p, pkId) -> do
+        mbC <- runPSM st $ getIdentityContact (toKeyID pkId)
+        case mbC of
+            Nothing -> return $ Right p
+            Just c -> return $ Left $ Map.singleton c (Set.singleton p)
+    return (List.foldl' (Map.unionWith Set.union) Map.empty cs, noCs)
+  where
+    isAuthenticated (p, E2E.Authenticated{E2E.sessionVerifyInfo = vi})
+           = Just (p, E2E.keyID vi)
+    isAuthenticated _ = Nothing

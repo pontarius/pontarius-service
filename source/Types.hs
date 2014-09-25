@@ -44,6 +44,11 @@ data AccountState = AccountEnabled
                   | AccountDisabled
                     deriving (Show, Eq)
 
+
+data PeerStatus = Unavailable
+                | Available
+                  deriving (Show, Eq)
+
 instance Representable UTCTime where
     type RepType UTCTime = 'DBusSimpleType TypeUInt32
     toRep = DBVUInt32 . round . utcTimeToPOSIXSeconds
@@ -142,6 +147,7 @@ makeRepresentable ''Ent
 makeRepresentable ''AkeEvent
 makeRepresentable ''ChallengeEvent
 makeRepresentable ''RevocationEvent
+makeRepresentable ''PeerStatus
 
 class Signaling m where
     signals :: SomeSignal -> m ()

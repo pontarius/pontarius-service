@@ -7,8 +7,10 @@ import           Control.Concurrent.STM
 import           Control.Lens
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Either
-import           DBus.Types
+import           DBus.Types hiding (logDebug)
 import qualified Data.ByteString as BS
+import           Data.Map (Map)
+import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Text (Text)
 import qualified Data.Text as Text
@@ -181,14 +183,14 @@ verifySignature :: MonadIO m =>
                 -> BS.ByteString
                 -> BS.ByteString
                 -> BS.ByteString
-                -> m Bool
+                -> m (Maybe BS.ByteString)
 verifySignature st _peer pk sig pt = runPSM st $ do
     ids <- importIdent pk
     case ids of
         [id] -> do
             verified <- liftIO $ verifyGPG id sig pt
             logDebug $ "Signature is: "  ++ show verified
-            return verified
+            return $ if verified then (Just id) else Nothing
         _ -> do
             logDebug "import resulted in more than one key"
-            return False
+            return Nothing

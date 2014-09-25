@@ -49,11 +49,6 @@ instance IsStub (MethodHandlerT IO a) where
 instance IsStub b => IsStub (a -> b) where
     stub = \_ -> stub
 
-instance DBus.Representable UUID where
-    type RepType UUID = RepType Text
-    toRep = toRep . Text.pack . UUID.toString
-    fromRep = UUID.fromString . Text.unpack <=< fromRep
-
 ----------------------------------------------------
 -- Methods
 ----------------------------------------------------
@@ -236,9 +231,10 @@ xmppInterface st = Interface
                 ] []
                 [ SSD receivedChallengeSignal
                 , SSD challengeResultSignal
-                , SSD peerStatusChangedSignal
+                , SSD contactStatusChangedSignal
                 , SSD peerTrustStatusChangedSignal
                 , SSD subscriptionRequestSignal
+                , SSD unlinkedIdentityAvailabilitySignal
                 ]
                 [ SomeProperty $ identityProp st
                 ]

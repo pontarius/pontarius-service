@@ -24,8 +24,8 @@ import qualified Data.UUID.V4 as UUID
 import           Database.Persist
 import           Database.Persist.Sqlite
 import qualified Network.Xmpp as Xmpp
-
 import           Persist.Schema
+
 import           Types
 
 

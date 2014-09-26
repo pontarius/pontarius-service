@@ -152,66 +152,7 @@ listView colName action =
         action
 
 peersPage con = withVBoxNew $ do
-    peersWindow <- packGrow $ listView "peer" (\id -> return ())
-    timedButton "get peers" 250000 $ do
-        ps <- liftIO (throwME $ DBus.getProperty peersP con
-                      :: IO [(Text, Bool)])
-        liftIO $ setListWindow peersWindow ps
-    withHBoxNew $ do
-        performer "add peer" $ \peer ->
-            liftIO (throwME $ addPeer peer con :: IO ())
-        timedButton "remove selected peers" 250000 . liftIO $ do
-            peers <- listWindowGetSelectedItems peersWindow
-            forM_ peers $ \(peer,_) -> (throwME $ removePeer peer con :: IO ())
-    avPeersWindow <- packGrow $ listView "peer"
-                     (\id -> do
-                           res <- liftIO (startAKE id con
-                                          :: IO (Either MethodError Bool))
-                           logToWindow $ show res)
-    timedButton "get available peers" 250000 $ do
-        ps <- liftIO (throwME $ DBus.getProperty availableEntitiesP con :: IO [Text])
-        liftIO $ setListWindow avPeersWindow ps
-    peerStatus <- labeledInput "peerStatus signal"
-    liftIO $ addSignalHandler anySignal{matchMember = Just "peerStatusChanged"}
-        mempty
-        (\sg -> postGUIAsync $ entrySetText peerStatus (show (signalBody sg)))
-        con
-    challengerField <- labeledInput "challenger"
-    questionField <- labeledInput "challenge question"
-    secretField <- labeledInput "secret"
-    liftIO $ addSignalHandler anySignal{matchMember = Just "receivedChallenge"}
-        mempty
-        (\sg -> case signalBody sg of
-                 [  DBV (DBVString chalPeer)
-                  , DBV (DBVString quest)] -> postGUIAsync $ do
-                     entrySetText challengerField chalPeer
-                     entrySetText questionField quest
-                 xs -> putStrLn $ "challenge signal type error" ++ show xs
-        )
-        con
-    timedButton "challenge" 250000 $ do
-        peers <- liftIO $ listWindowGetSelectedItems avPeersWindow
-        liftIO . forM_ peers $ \peer -> do
-            question <- entryGetText questionField :: IO Text
-            secret <- entryGetText secretField :: IO Text
-            throwME (initiateChallenge (peer :: Text) question secret con) :: IO ()
-    timedButton "respond challenge" 250000 $ liftIO $ do
-        peer <- entryGetText challengerField :: IO Text
-        secret <- entryGetText secretField :: IO Text
-        throwME (respondChallenge peer secret con) :: IO ()
-    (trustLabel, _) <- withHBoxNew $ do
-        addLabel (Just "trust status") >> addLabel Nothing
-    liftIO $ addSignalHandler anySignal{matchMember = Just "peerTrustStatusChanged"}
-        mempty
-        (\sg -> case signalBody sg of
-                 [  DBV (DBVString peer)
-                  , DBV (DBVString status)] -> postGUIAsync $ do
-                     labelSetText trustLabel $ peer <> " / " <> status
-                 xs -> putStrLn $ "challenge signal type error" ++ show xs
-        )
-        con
-    return peersWindow
-
+    contacts
 
 challengesPage peers con = withVBoxNew $ do
     challengesWindow <- listView "challenges" (\id -> return ())

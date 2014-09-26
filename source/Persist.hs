@@ -93,13 +93,14 @@ getState = do
 
 addChallenge :: MonadIO m => Xmpp.Jid
              -> SessionID
+             -> KeyID
              -> Bool
              -> Maybe Text
              -> PSM m ()
-addChallenge peer sid isOut mbQuestion = do
+addChallenge peer sid kid isOut mbQuestion = do
     now <- liftIO $ getCurrentTime
     challengeID <- liftIO $ UUID.nextRandom
-    _ <- runDB . insert $ Challenge challengeID peer sid isOut now
+    _ <- runDB . insert $ Challenge challengeID peer sid kid isOut now
                                     Nothing mbQuestion Nothing False
     return ()
 
@@ -116,8 +117,8 @@ setChallengeCompleted peer trust = runDB $ do
                                 ]
 
 
-getChallenges :: (MonadIO m, Functor m) => Xmpp.Jid -> PSM m [Challenge]
-getChallenges peer
+getPeerChallenges :: (MonadIO m, Functor m) => Xmpp.Jid -> PSM m [Challenge]
+getPeerChallenges peer
     = map entityVal <$> runDB (selectList
                                [ ChallengeHidden ==. False
                                , ChallengePeer ==. (Xmpp.toBare peer)
@@ -139,10 +140,11 @@ haveKey kid = runDB $ do
     res <- getBy (UniquePubIdentKey kid)
     return $ maybe False (const True) res
 
-newContact :: MonadIO m => Text -> PSM m (Key Contact)
+newContact :: MonadIO m => Text -> PSM m UUID
 newContact name = runDB $ do
     contactID <- liftIO UUID.nextRandom
-    insert $ Contact contactID name
+    _ <- insert $ Contact contactID name
+    return contactID
 
 renameContact :: MonadIO m => UUID -> Text -> PSM m ()
 renameContact contactID newName = runDB $ do
@@ -160,15 +162,15 @@ removeContactJid :: MonadIO m => Xmpp.Jid -> PSM m ()
 removeContactJid jid = runDB $ do
     deleteBy $ UniqueContactJid jid
 
-addContactIdentity :: MonadIO m =>
+setContactIdentity :: MonadIO m =>
                       UUID
                    -> KeyID
-                   -> PSM m (Either Text (Key ContactIdentity))
-addContactIdentity contactID ident = runDB $ runExceptT $  do
+                   -> PSM m (Either Text (Entity ContactIdentity))
+setContactIdentity contactID ident = runDB $ runExceptT $  do
     mbContact <- lift $ getBy (UniqueContact contactID)
     case mbContact of
         Nothing -> throwError ("Contact not found" :: Text)
-        Just c -> lift $ insert $ ContactIdentity (entityKey c) ident
+        Just c -> lift $ upsert (ContactIdentity (entityKey c) ident) []
 
 removeContactIdentity :: MonadIO m => KeyID -> PSM m ()
 removeContactIdentity id = runDB $ do

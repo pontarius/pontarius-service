@@ -9,8 +9,6 @@ import           Control.Monad.Reader
 import           Control.Monad.Trans.Either
 import           DBus.Types hiding (logDebug)
 import qualified Data.ByteString as BS
-import           Data.Map (Map)
-import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Text (Text)
 import qualified Data.Text as Text
@@ -153,10 +151,10 @@ setSigningGpgKeyM st keyFpr = do
 --                             }
 --         Just key -> return key
 
-getChallengesM :: Xmpp.Jid ->
+getIdentityChallengesM :: Xmpp.Jid ->
                   PSM IO [(UUID, Xmpp.Jid, Bool, Text, Text, Text, Bool)]
-getChallengesM peer = do
-    c <- getChallenges peer
+getIdentityChallengesM peer = do
+    c <- getPeerChallenges peer
     return $ map (\c -> ( challengeUniqueID c
                         , challengePeer c
                         , challengeOutgoing c
@@ -194,3 +192,7 @@ verifySignature st _peer pk sig pt = runPSM st $ do
         _ -> do
             logDebug "import resulted in more than one key"
             return Nothing
+
+
+newContactM :: PSState -> Text -> IO UUID
+newContactM st name = runPSM st $ newContact name

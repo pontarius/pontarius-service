@@ -14,20 +14,21 @@ module DBusInterface
 import           Control.Concurrent.STM
 import qualified Control.Exception as Ex
 import           Control.Lens
-import           Control.Monad
 import           DBus as DBus
 import           DBus.Types
 import           Data.ByteString (ByteString)
+import           Data.Map (Map)
+import qualified Data.Map as Map
+import           Data.Set (Set)
 import           Data.String
 import           Data.Text (Text)
-import qualified Data.Text as Text
 import           Data.Typeable (Typeable)
 import           Data.UUID (UUID)
-import qualified Data.UUID as UUID
 import qualified Network.Xmpp as Xmpp
 
 import           Basic
 import           Gpg
+import           Persist.Schema
 import           Signals
 import           Transactions
 import           Types
@@ -111,19 +112,28 @@ removeChallengeMethod st =
     ResultDone
 
 
+initialize :: PSState
+           -> IO ( PontariusState
+                 , Map UUID (Text, Set Xmpp.Jid), [Xmpp.Jid])
 initialize st = do
     let stateRef = view psState st
-    atomically $ do
-        s <- readTVar stateRef
-        ps <- getPeersSTM st
-        return (s, ps)
+    (cs, us) <- availableContacts st
+    s <- readTVarIO stateRef
+    return (s, contactsMap cs, us)
+  where
+    contactsMap = Map.fromList
+                  . map (\(c, js) -> (contactUniqueID c, (contactName c, js)))
+                  . Map.toList
 
 initializeMethod :: PSState -> Method
 initializeMethod st =
     DBus.Method
     (DBus.repMethod $ initialize st)
     "initialize" Result
-    ("state" :> "peers" :> ResultDone)
+    ( "state"
+     :> "available_contacts"
+     :> "unlinked-peers"
+     :> ResultDone)
 
 importKeyMethod :: Method
 importKeyMethod =
@@ -204,6 +214,27 @@ setIdentityMethod st =
                 ("keyID" :-> Result)
                 ResultDone
 
+newContactMethod :: PSState -> Method
+newContactMethod st =
+    DBus.Method (DBus.repMethod $ newContactM st)
+                "newContact"
+                ("name" :-> Result)
+                "contact_id"
+
+linkIdentityMethod :: PSState -> Method
+linkIdentityMethod st =
+    DBus.Method (DBus.repMethod $ \kid c -> moveIdentity st kid (Just c) )
+                "linkIdentity"
+                ("identity" :-> "contact" :-> Result)
+                ResultDone
+
+unlinkIdentityMethod :: PSState -> Method
+unlinkIdentityMethod st =
+    DBus.Method (DBus.repMethod $ \kid -> moveIdentity st kid Nothing )
+                "unlinkIdentity"
+                ("identity" :-> Result)
+                ResultDone
+
 ----------------------------------------------------
 -- Objects
 ----------------------------------------------------
@@ -228,6 +259,9 @@ xmppInterface st = Interface
                 , getIdentitiesMethod
                 , setCredentialsMethod st
                 , getCredentialsMethod st
+                , newContactMethod st
+                , linkIdentityMethod st
+                , unlinkIdentityMethod st
                 ] []
                 [ SSD receivedChallengeSignal
                 , SSD challengeResultSignal

@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC  -fno-warn-incomplete-patterns #-}
 
 {-# LANGUAGE DataKinds #-}
@@ -18,13 +19,18 @@ import           Control.Concurrent.STM
 import           Control.Lens
 import           Control.Monad.Reader
 import           DBus
-import           DBus.Types
 import           DBus.Signal
+import           DBus.Types
 import           Data.ByteString (ByteString)
+import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Text (Text)
+import qualified Data.Text as Text
 import           Data.Time.Clock (UTCTime)
 import           Data.Time.Clock.POSIX as Time
 import           Data.Typeable
+import           Data.UUID (UUID)
+import qualified Data.UUID as UUID
 import           Database.Persist.Sqlite
 import qualified Network.Xmpp as Xmpp
 import qualified Network.Xmpp.E2E as Xmpp
@@ -58,6 +64,11 @@ instance DBus.Representable Xmpp.Jid where
     type RepType Xmpp.Jid = 'DBusSimpleType TypeString
     toRep = DBus.DBVString . Xmpp.jidToText
     fromRep (DBus.DBVString s) = Xmpp.jidFromText s
+
+instance (Ord a, DBus.Representable a) => DBus.Representable (Set a) where
+    type RepType (Set a) = RepType [a]
+    toRep = toRep . Set.toList
+    fromRep = fmap Set.fromList . fromRep
 
 data PSProperties = PSProperties{ _pspConnectionStatus :: Property (RepType Bool)}
 
@@ -148,6 +159,13 @@ makeRepresentable ''AkeEvent
 makeRepresentable ''ChallengeEvent
 makeRepresentable ''RevocationEvent
 makeRepresentable ''PeerStatus
+
+
+instance DBus.Representable UUID where
+    type RepType UUID = RepType Text
+    toRep = toRep . Text.pack . UUID.toString
+    fromRep = UUID.fromString . Text.unpack <=< fromRep
+
 
 class Signaling m where
     signals :: SomeSignal -> m ()

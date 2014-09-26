@@ -49,6 +49,7 @@ Challenge
     uniqueID UUID
     peer Jid
     sessionID SessionID
+    keyID KeyID
     outgoing Bool
     started UTCTime Asc Desc
     completed UTCTime Maybe Eq

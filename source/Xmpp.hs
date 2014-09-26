@@ -37,6 +37,7 @@ import qualified Data.Set as Set
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
+import           Data.UUID (UUID)
 import qualified Network.TLS as TLS
 import qualified Network.Xmpp as Xmpp
 import qualified Network.Xmpp.E2E as E2E
@@ -87,9 +88,11 @@ makeE2ECallbacks kid = do
     con <- liftIO . atomically . readTMVar =<< view psDBusConnection
     return E2E.E2EC { E2E.onStateChange =
                        \p os ns -> handleStateChange st con p os ns
-                    , E2E.onSmpChallenge = \p q -> do
+                    , E2E.onSmpChallenge = \p ssid vinfo q -> do
                            -- TODO: Select Session ID
-                           runPSM st $ addChallenge p "todo" False q
+                           runPSM st $ addChallenge p ssid
+                                           (toKeyID $ E2E.keyID vinfo)
+                                           False q
                            let q' = maybe "" id q
                            emitSignal receivedChallengeSignal (p, q') con
                     , E2E.onSmpAuthChange = \p s -> do
@@ -103,6 +106,13 @@ makeE2ECallbacks kid = do
 
                     }
 
+handleStateChange :: MonadIO m =>
+                     PSState
+                  -> DBusConnection
+                  -> Xmpp.Jid
+                  -> E2E.MsgState
+                  -> E2E.MsgState
+                  -> m ()
 handleStateChange st con j oldState newState = case (oldState, newState) of
     (E2E.MsgStatePlaintext, E2E.MsgStateEncrypted vi)
         -> setOnline st con j $ toKeyID (E2E.keyID vi)
@@ -137,6 +147,12 @@ setOnline st con p kid = runPSM st $ do
                                            (contactUniqueID c, Available) con
                 _ -> return () -- Was already set online
 
+setOffline :: MonadIO m =>
+              PSState
+           -> DBusConnection
+           -> Xmpp.Jid
+           -> KeyID
+           -> m ()
 setOffline st con p kid = runPSM st $ do
     mbContact <- getIdentityContact kid
     case mbContact of
@@ -155,7 +171,26 @@ setOffline st con p kid = runPSM st $ do
                 _ -> return () -- Was already set offline or there are contacts
                                -- remaining
 
-
+moveIdentity :: PSState
+             -> KeyID
+             -> Maybe UUID
+             -> IO ()
+moveIdentity st kid mbNewContact = runPSM st $ do
+    con <- liftIO . atomically . readTMVar $ view psDBusConnection st
+    mbContact <- fmap contactUniqueID <$> getIdentityContact kid
+    unless (mbContact == mbNewContact) $ case mbNewContact of
+        Just c -> do
+            ps <- Map.keys <$> liftIO (sessionsByIdentity st kid)
+            forM_ ps $ \p -> setOffline st con p kid
+            _ <- setContactIdentity c kid
+            liftIO $ emitSignal identityContactMovedSignal (kid, c) con
+            forM_ ps $ \p -> setOnline st con p kid
+        Nothing -> do
+            ps <- Map.keys <$> liftIO (sessionsByIdentity st kid)
+            forM_ ps $ \p -> setOffline st con p kid
+            _ <- removeContactIdentity kid
+            liftIO $ emitSignal identityUnlinkedSignal kid con
+            forM_ ps $ \p -> setOnline st con p kid
 
 -- | Make a single attempt to connect to the xmpp server
 --
@@ -215,12 +250,12 @@ tryConnect key st = runPSM st $ do
                 ConnectionError "Connection credentials are unset."
   where
     opc peer old new = do
-        con <- liftIO . atomically . readTMVar $ view psDBusConnection st
         case (old, new) of
-             (Xmpp.PeerAvailable{}, Xmpp.PeerUnavailable) -> peerOffline peer
+             -- peers going offline should be noticed by e2e and the appropriate
+             -- callback called
+             (Xmpp.PeerAvailable{}, Xmpp.PeerUnavailable) -> return ()
              (Xmpp.PeerUnavailable, Xmpp.PeerAvailable{}) -> ake st peer
              _ -> return ()
-    peerOffline p = undefined -- TODO
     clientHooksL = lens TLS.clientHooks (\cp ch -> cp{TLS.clientHooks = ch})
     onServerCertificateL = lens TLS.onServerCertificate
                                 (\ch osc-> ch {TLS.onServerCertificate = osc})
@@ -490,7 +525,8 @@ verifyChannel peer question secret = do
     case res of
         Left e -> lift . methodError $ MsgError "pontarius.Xmpp.SMP"
                                          (Just $ tShow e) []
-        Right _ -> addChallenge peer "todo" True mbQuestion
+        Right (ssid, vinfo) ->
+            addChallenge peer ssid (toKeyID $ E2E.keyID vinfo) True mbQuestion
 
 respondChallenge :: Xmpp.Jid -> Text -> PSM (MethodHandlerT IO) ()
 respondChallenge peer secret = do
@@ -501,13 +537,26 @@ respondChallenge peer secret = do
                                          (Just $ tShow e) []
      Right r -> return r
 
+getSessions :: PSState -> IO (Map Xmpp.Jid E2E.SessionState)
+getSessions st = atomically $ do
+    c <- readTVar (view psXmppCon st)
+    case c of
+        XmppConnected _ ctx _ -> E2E.getSessions ctx
+        _ -> return Map.empty
+
+
+sessionsByIdentity :: PSState -> KeyID -> IO (Map Xmpp.Jid E2E.SessionState)
+sessionsByIdentity st kid = do
+    sess <- getSessions st
+    return $ Map.filter hasKid sess
+  where
+    hasKid E2E.Authenticated{E2E.sessionVerifyInfo = vinfo}
+        = toKeyID (E2E.keyID vinfo) == kid
+    hasKid _ = False
+
 availableContacts :: PSState -> IO (Map Contact (Set Xmpp.Jid), [Xmpp.Jid])
 availableContacts st = do
-    sessions <- atomically $ do
-        c <- readTVar (view psXmppCon st)
-        case c of
-            XmppConnected _ ctx _ -> E2E.getSessions ctx
-            _ -> return Map.empty
+    sessions <- getSessions st
     -- "online" (i.e. authenticated) peers
     let ops = mapMaybe isAuthenticated $ Map.toList sessions
     (cs, noCs) <- fmap partitionEithers . forM ops $ \(p, pkId) -> do

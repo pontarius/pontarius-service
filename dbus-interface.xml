@@ -38,7 +38,8 @@
       </method>
       <method name="initialize">
         <arg name="state" type="y" direction="out"/>
-        <arg name="peers" type="a(sb)" direction="out"/>
+        <arg name="available_contacts" type="a{s(sas)}" direction="out"/>
+        <arg name="unlinked-peers" type="as" direction="out"/>
       </method>
       <method name="markKeyVerified">
         <arg name="key-id" type="s" direction="in"/>
@@ -99,6 +100,17 @@
       </method>
       <method name="getCredentials">
         <arg name="username" type="s" direction="out"/>
+      </method>
+      <method name="newContact">
+        <arg name="name" type="s" direction="in"/>
+        <arg name="contact_id" type="s" direction="out"/>
+      </method>
+      <method name="linkIdentity">
+        <arg name="identity" type="s" direction="in"/>
+        <arg name="contact" type="s" direction="in"/>
+      </method>
+      <method name="unlinkIdentity">
+        <arg name="identity" type="s" direction="in"/>
       </method>
       <signal name="receivedChallenge">
         <arg name="peer" type="s"/>

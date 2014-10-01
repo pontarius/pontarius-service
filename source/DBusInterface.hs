@@ -54,22 +54,22 @@ instance IsStub b => IsStub (a -> b) where
 -- Methods
 ----------------------------------------------------
 
-instance IsString (ResultDescription ('Arg 'Null)) where
-    fromString t = (fromString t :> ResultDone)
+instance IsString (ArgumentDescription ('Arg 'Null)) where
+    fromString t = (fromString t :> Done)
 
 setCredentialsMethod :: PSState -> Method
 setCredentialsMethod st =
     Method (DBus.repMethod $ \u p -> setCredentialsM st u p)
            "setCredentials"
-           ("username" :-> "password" :-> Result)
-           ResultDone
+           ("username" :> "password" :> Done)
+           Done
 
 getCredentialsMethod :: PSState -> Method
 getCredentialsMethod st =
     Method (DBus.repMethod $ getCredentialsM st)
            "getCredentials"
-           Result
-           ("username" :> ResultDone)
+           Done
+           ("username" :> Done)
 
 securityHistoryByJidMethod :: Method
 securityHistoryByJidMethod =
@@ -79,12 +79,12 @@ securityHistoryByJidMethod =
                                               , [RevocationEvent]
                                               , [RevocationSignalEvent]
                                               )))
-    "securityHistoryByJID" ("peer" :-> Result )
+    "securityHistoryByJID" ("peer" :> Done )
     ( "ake_events"
       :> "challenge_events"
       :> "revocation_events"
       :> "revocation_signal_events"
-      :> ResultDone
+      :> Done
     )
 
 
@@ -96,20 +96,20 @@ securityHistoryByKeyIdMethod =
                                          , [RevocationEvent]
                                          , [RevocationSignalEvent]
                                          )))
-    "securityHistoryByKeyID" ("key_id" :-> Result)
+    "securityHistoryByKeyID" ("key_id" :> Done)
     ("ake_events"
      :> "challenge_events"
      :> "revocation_events"
      :> "revocation_signal_events"
-     :> ResultDone
+     :> Done
     )
 
 removeChallengeMethod :: PSState -> DBus.Method
 removeChallengeMethod st =
     DBus.Method (DBus.repMethod $ runPSM st . removeChallenge)
     "removeChallenge"
-    ("challenge_id" :-> Result )
-    ResultDone
+    ("challenge_id" :> Done )
+    Done
 
 
 initialize :: PSState
@@ -129,29 +129,29 @@ initializeMethod :: PSState -> Method
 initializeMethod st =
     DBus.Method
     (DBus.repMethod $ initialize st)
-    "initialize" Result
+    "initialize" Done
     ( "state"
      :> "available_contacts"
      :> "unlinked-peers"
-     :> ResultDone)
+     :> Done)
 
 importKeyMethod :: Method
 importKeyMethod =
     DBus.Method
     (DBus.repMethod $ (stub :: Text -> IO KeyID ))
-    "importKey" ("location" :-> Result) "key_id"
+    "importKey" ("location" :> Done) "key_id"
 
 markKeyVerifiedMethod :: Method
 markKeyVerifiedMethod =
     DBus.Method
     (DBus.repMethod $ (stub :: KeyID -> IO () ))
-    "markKeyVerified" ("key-id" :-> Result) ResultDone
+    "markKeyVerified" ("key-id" :> Done) Done
 
 revokeIdentityMethod :: Method
 revokeIdentityMethod =
     DBus.Method
     (DBus.repMethod $ (revokeIdentity ::  KeyID -> MethodHandlerT IO ()))
-    "revokeIdentity" ("key_id" :-> Result) ResultDone
+    "revokeIdentity" ("key_id" :> Done) Done
 
 createIdentityMethod :: PSState -> Method
 createIdentityMethod st =
@@ -159,81 +159,81 @@ createIdentityMethod st =
     (DBus.repMethod $ (runPSM st synchronousCreateGpgKey
                            :: MethodHandlerT IO ByteString))
     "createIdentity"
-    Result
+    Done
     ("key_id" -- key_id of the newly created key
-     :> ResultDone)
+     :> Done)
 
 
 initiateChallengeMethod :: PSState -> Method
 initiateChallengeMethod st =
     DBus.Method
     (DBus.repMethod $ \p q s -> runPSM st $ verifyChannel p q s)
-    "initiateChallenge" ("peer" :-> "question" :-> "secret" :-> Result)
-    ResultDone
+    "initiateChallenge" ("peer" :> "question" :> "secret" :> Done)
+    Done
 
 respondChallengeMethod :: PSState -> Method
 respondChallengeMethod st =
     DBus.Method
     (DBus.repMethod $ (\peer secret -> runPSM st $ respondChallenge peer secret))
-    "respondChallenge" ("peer" :-> "secret" :-> Result)
-    ResultDone
+    "respondChallenge" ("peer" :> "secret" :> Done)
+    Done
 
 getTrustStatusMethod :: Method
 getTrustStatusMethod =
     DBus.Method
     (DBus.repMethod $ (stub :: Text -> IO Bool))
-    "getTrustStatus" ("entity" :-> Result) "is_trusted"
+    "getTrustStatus" ("entity" :> Done) "is_trusted"
 
 addPeerMethod :: PSState -> Method
 addPeerMethod st =
     DBus.Method
     (DBus.repMethod $ runPSM st . addPeer)
-    "addPeer" ("jid" :-> Result)
-    ResultDone
+    "addPeer" ("jid" :> Done)
+    Done
 
 removePeerMethod :: PSState -> Method
 removePeerMethod st =
     DBus.Method
     (DBus.repMethod $ (runPSM st . removePeer
                        :: Xmpp.Jid -> MethodHandlerT IO ()))
-    "removePeer" ("peer" :-> Result)
-    ResultDone
+    "removePeer" ("peer" :> Done)
+    Done
 
 registerAccountMethod :: Method
 registerAccountMethod =
     DBus.Method
     (DBus.repMethod $ (stub :: Text -> Text -> Text -> IO ()))
-    "registerAccount" ("server" :-> "username" :-> "password"
-                        :-> Result)
-    ResultDone
+    "registerAccount" ("server" :> "username" :> "password"
+                        :> Done)
+    Done
 
 setIdentityMethod :: PSState -> Method
 setIdentityMethod st =
     DBus.Method (DBus.repMethod $ setSigningGpgKeyM st)
                 "setIdentity"
-                ("keyID" :-> Result)
-                ResultDone
+                ("keyID" :> Done)
+                Done
 
 newContactMethod :: PSState -> Method
 newContactMethod st =
     DBus.Method (DBus.repMethod $ newContactM st)
                 "newContact"
-                ("name" :-> Result)
+                ("name" :> Done)
                 "contact_id"
 
 linkIdentityMethod :: PSState -> Method
 linkIdentityMethod st =
     DBus.Method (DBus.repMethod $ \kid c -> moveIdentity st kid (Just c) )
                 "linkIdentity"
-                ("identity" :-> "contact" :-> Result)
-                ResultDone
+                ("identity" :> "contact" :> Done)
+                Done
 
 unlinkIdentityMethod :: PSState -> Method
 unlinkIdentityMethod st =
     DBus.Method (DBus.repMethod $ \kid -> moveIdentity st kid Nothing )
                 "unlinkIdentity"
-                ("identity" :-> Result)
-                ResultDone
+                ("identity" :> Done)
+                Done
 
 ----------------------------------------------------
 -- Objects

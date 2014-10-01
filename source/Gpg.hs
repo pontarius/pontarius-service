@@ -129,9 +129,9 @@ getIdentitiesMethod  =
     DBus.Method
     (DBus.repMethod $ (getIdentities :: IO [KeyID] ))
     "getIdentities"
-    Result
+    Done
     ("identities" -- ^ List of keyIDs
-     :> ResultDone)
+     :> Done)
 
 importKey :: MonadIO m => ByteString -> PSM m [ByteString]
 importKey key = do

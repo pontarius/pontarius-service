@@ -276,12 +276,13 @@ ake st them = liftM (maybe () id) . runMaybeT $ do
         Nothing -> do
             logError "No local JID set"
             mzero
-    let doStartAke = jidHash we them <= jidHash them we
-    liftIO $ when doStartAke (go ctx)
+    let doStartAke = we /= them
+                     && jidHash we them <= jidHash them we
+    liftIO $ when doStartAke (go 3 ctx)
   where
     jidHash j1 j2 = SHA256.hash $
                       (mappend `on` Text.encodeUtf8 . Xmpp.jidToText) j1 j2
-    go ctx = do
+    go n ctx = do
 
         mbAke <- E2E.startE2E them ctx
         case mbAke of
@@ -292,13 +293,15 @@ ake st them = liftM (maybe () id) . runMaybeT $ do
                 return ()
             Left (E2E.AKEIQError iqe) ->
                 case iqe ^. errCond of
-                    Xmpp.Conflict -> do
-                        -- Wait for 5 to 10 seconds and try again
-                        wait <- randomRIO (5, 10)
+                    Xmpp.Conflict -> unless (n <= (0 :: Integer)) $ do
+                        -- Wait for 5 to 20 seconds and try again (but at most 3
+                        -- times)
+                        wait <- randomRIO (5, 20)
                         delay (wait * 1000000)
-                        go ctx
+                        go (n-1) ctx
                     -- Entity doesn't support AKE:
                     Xmpp.ServiceUnavailable -> return ()
+                    Xmpp.FeatureNotImplemented -> return ()
                     -- Something went wrong
                     Xmpp.BadRequest -> do
                         logError $ "AKE with " ++ showJid them ++ " failed: "

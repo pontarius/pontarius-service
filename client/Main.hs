@@ -13,11 +13,7 @@ import           Control.Monad.Reader
 import           Control.Monad.Trans
 import           Control.Monad.Trans.Maybe
 import           DBus
-import           DBus.Message
-import           DBus.MessageBus
-import qualified DBus.Property as DBus
-import           DBus.Signal
-import           DBus.Types
+import           DBus.Reactive
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import           Data.Data
@@ -29,7 +25,9 @@ import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text as Text
 import           Data.Typeable
+import           FRP.Sodium
 import           Graphics.UI.Gtk
+import           Graphics.UI.Gtk.Reactive
 import           Graphics.UI.Gtk.WidgetBuilder
 import           Graphics.UI.Prototyper
 import           Network.Xmpp (jid, Jid)
@@ -38,8 +36,29 @@ import           System.Exit
 import           System.IO
 import           System.Log.Logger
 
+
 import           DBusInterface hiding (set)
 import           Types
+
+peer :: Text
+peer = "org.pontarius"
+
+splitEither :: Event (Either l r)
+     -> (Event l, Event r)
+splitEither ev = (filterJust (lToMb <$> ev), filterJust (rToMb <$> ev))
+  where
+    lToMb (Left l) = Just l
+    lToMb Right{} = Nothing
+    rToMb (Right r) = Just r
+    rToMb Left{} = Nothing
+
+call' :: (Representable ret, Representable args) =>
+         MethodDescription (FlattenRepType (RepType args))
+                           (FlattenRepType (RepType ret))
+      -> args
+      -> DBusConnection
+      -> IO (Either MethodError ret)
+call' md args = call md peer args []
 
 keymap = Map.empty
 
@@ -74,61 +93,42 @@ throwME m = do
         Left e -> Ex.throwIO e
         Right r -> return r
 
-labeledInput labelText = fmap fst . packNatural . withHBoxNew $ do
-    label <- packNatural $ addLabel (Just labelText)
-    entry <- packGrow addEntry
-    return entry
-
 credentials dbuscon = withVBoxNew $ do
-    usernameInput <- labeledInput "username"
-    passwordInput <- labeledInput "password"
-    withHBoxNew $ do
-        timedButton "send" 250000 . liftIO $ do
-            username <- entryGetText usernameInput :: IO Text
-            password <- entryGetText passwordInput :: IO Text
-            (throwME $ setCredentials username password dbuscon) :: IO ()
-            return ()
-        timedButton "get" 250000 $ do
-            res <- liftIO $ getCredentials dbuscon
-            case res of
-                Left _ -> return ()
-                Right username -> do
-                    logToWindow $ "Got credentials " ++ (Text.unpack username)
-                    liftIO $ do entrySetText usernameInput (username :: Text)
-    return ()
+    usernameEntry <- labeledEntry "username"
+    liftIO $ editableInsertText usernameEntry ("foo" :: Text) 0
+    passwordEntry <- labeledEntry "password"
+    usernameB <- liftIO $ inputB usernameEntry
+    passwordB <- liftIO $ inputB passwordEntry
+    (setE, getE) <-
+        withHBoxNew_ $ (,) <$> (addButtonE "set") <*> (addButtonE "get")
 
-identity dbusCon = withVBoxNew $ do
-    timedButton "new identity" 250000 $ do
-        ident <- liftIO (throwME $ createIdentity dbusCon
-                     :: IO ByteString)
-        logToWindow $ "Identity created: " ++ show ident
-        return ()
-
-textProperty label property con = withHBoxNew $ do
-    input <- labeledInput label
-    setButton <- timedButton "set" 250000 . liftIO $ do
-        val <- Text.pack <$> entryGetText input
-        DBus.setProperty property val con
-        return ()
-    getButton <- timedButton "get" 250000 $ do
-        mbVal <- liftIO $ DBus.getProperty property con
-        case mbVal of
-            Left e -> logToWindow "Error getting property"
-            Right v -> liftIO $ entrySetText input (Text.unpack v)
+    -- Reactive
+    le <- liftIO . sync $ do
+        let credentialsE :: Event (Text, Text)
+            credentialsE = setE @> ((,) <$> usernameB <*> passwordB)
+        sendE <- eventMethod setCredentials peer credentialsE dbuscon
+        getE <- eventMethod getCredentials peer getE dbuscon
+        let (getEl, getEr) = splitEither getE :: (Event MethodError, Event Text)
+        let (sendEl, sendEr) = splitEither sendE :: (Event MethodError, Event ())
+        eventSetInput usernameEntry (getEr)
+        return $ (show <$> sendEl) `merge`
+                 (show <$> getEl) `merge`
+                 (show <$> getEr)
+    logEvent le
     return ()
 
 connectionPage con =  withVBoxNew $ do
     withFrame (Just "credentials") $ credentials con
-    withFrame (Just "identity") $ identity con
     withFrame (Just "actions") $ withHBoxNew$  do
         timedButton "initialize" 250000 $ do
-            res <- liftIO $ (initialize con
-                             :: IO (Either MethodError PontariusState))
+            res <- liftIO $ (call' initialize () con
+                             :: IO (Either MethodError (PontariusState, Map Text (Text, [Text]), [Text])))
             logToWindow $ show res
         timedButton "enable" 250000 . liftIO $
             (throwME $ DBus.setProperty accountEnabledP True con :: IO ())
         timedButton "disable" 250000 . liftIO $
             (throwME $ DBus.setProperty accountEnabledP False con :: IO ())
+
 
 identitiesPage con = withVBoxNew $ do
     (siLabel, _) <- withHBoxNew $ do
@@ -137,39 +137,43 @@ identitiesPage con = withVBoxNew $ do
     idWindow <- packGrow $ withListWindow (do
         keyC <- addColumn "key" [ textRenderer (return . show) ]
         lift $ set keyC [treeViewColumnExpand := True])
-                         (\id -> liftIO (throwME (setIdentity id con) :: IO ()))
+                         (\id -> liftIO (throwME (call' setIdentity id con) :: IO ()))
     timedButton "getKeys" 500000 . liftIO $ do
-        ids <- (throwME $ getIdentities con) :: IO [Text]
+        ids <- (throwME $ call' getIdentities () con) :: IO [Text]
         setListWindow idWindow ids
-        id <-  DBus.getProperty identityP con
-                    :: IO (Either MethodError Text)
-        labelSetText siLabel (either (const $ "no identity set") show id)
+        -- id <-  DBus.getProperty identityP con
+        --             :: IO (Either MethodError Text)
+        -- labelSetText siLabel (either (const $ "no identity set") show id)
 
-listView colName action =
-    withListWindow
-        (do col <- addColumn colName [ textRenderer (return . show) ]
-            lift $ set col [treeViewColumnExpand := True])
-        action
+-- listView colName action =
+--     withListWindow
+--         (do col <- addColumn colName [ textRenderer (return . show) ]
+--             lift $ set col [treeViewColumnExpand := True])
+--         action
 
-peersPage con = withVBoxNew $ do
-    contacts
+-- peersPage con = withVBoxNew $ do
+--     contacts
 
-challengesPage peers con = withVBoxNew $ do
-    challengesWindow <- listView "challenges" (\id -> return ())
-    timedButton "getChallenges" 250000 $ liftIO $ do
-        ps <- listWindowGetSelectedItems peers
-        case ps of
-             [] -> return ()
-             [(p, _)] -> do
-                 chals <- (throwME (getChallenges p con)
-                              :: IO [(Text, Text, Bool, Text, Text, Text, Bool)])
-                 setListWindow challengesWindow chals
+-- challengesPage peers con = withVBoxNew $ do
+--     challengesWindow <- listView "challenges" (\id -> return ())
+--     timedButton "getChallenges" 250000 $ liftIO $ do
+--         ps <- listWindowGetSelectedItems peers
+--         case ps of
+--              [] -> return ()
+--              [(p, _)] -> do
+--                  chals <- (throwME (getChallenges p con)
+--                               :: IO [(Text, Text, Bool, Text, Text, Text, Bool)])
+--                  setListWindow challengesWindow chals
 
 mkMainView signalChan con = fmap (toWidget . snd) . withNotebook $ do
     addPage "connection" $ connectionPage con
     addPage "identities" $ identitiesPage con
-    (identView, _) <- addPage "peers" $ peersPage con
-    addPage "challenges" $ challengesPage identView con
+    cStatusE <- liftIO $ signalEvent contactStatusChangedSignal Nothing con
+    logEvent (show <$> (cStatusE :: Event (Text, PeerStatus)))
+    upStatusE <- liftIO $ signalEvent unlinkedIdentityStatusChangedSignal Nothing con
+    logEvent (show <$> (upStatusE :: Event (Text, Jid, PeerStatus)))
+    -- (identView, _) <- addPage "peers" $ peersPage con
+    -- addPage "challenges" $ challengesPage identView con
 
 main = do
     updateGlobalLogger "DBus" $ setLevel DEBUG

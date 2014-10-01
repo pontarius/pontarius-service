@@ -85,7 +85,6 @@ executable client
 --                     , pontarius-xmpp-e2e
                      , d-bus
                      , text
-                     , configurator
                      , mtl
                      , directory
                      , filepath
@@ -98,6 +97,9 @@ executable client
                      , prototyper
                      , stm
                      , unbounded-delays
+                     , sodium
+                     , d-bus-reactive
+                     , uuid
 --                     , vty-ui
   hs-source-dirs:      client, source
   default-language:    Haskell2010

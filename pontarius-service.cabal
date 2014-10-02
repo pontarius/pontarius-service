@@ -27,6 +27,7 @@ executable pontarius-service
                      , Persist.Stage
                      , Types
                      , Xmpp
+                     , Signals
 
   build-depends: base >=4.6 && < 5
                , base64-bytestring >= 1.0.0.1

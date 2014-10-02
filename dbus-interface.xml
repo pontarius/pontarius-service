@@ -41,20 +41,6 @@
         <arg name="key_id" type="s" direction="in"/>
         <arg name="is_verified" type="b" direction="in"/>
       </method>
-      <method name="securityHistoryByJID">
-        <arg name="peer" type="s" direction="in"/>
-        <arg name="ake_events" type="a(ubssss)" direction="out"/>
-        <arg name="challenge_events" type="a(buuss)" direction="out"/>
-        <arg name="revocation_events" type="a(su)" direction="out"/>
-        <arg name="revocation_signal_events" type="a(su)" direction="out"/>
-      </method>
-      <method name="securityHistoryByKeyID">
-        <arg name="key_id" type="s" direction="in"/>
-        <arg name="ake_events" type="a(ubssss)" direction="out"/>
-        <arg name="challenge_events" type="a(buuss)" direction="out"/>
-        <arg name="revocation_events" type="a(su)" direction="out"/>
-        <arg name="revocation_signal_events" type="a(su)" direction="out"/>
-      </method>
       <method name="setIdentity">
         <arg name="keyID" type="s" direction="in"/>
       </method>
@@ -73,20 +59,11 @@
       <method name="removeChallenge">
         <arg name="challenge_id" type="s" direction="in"/>
       </method>
-      <method name="getTrustStatus">
-        <arg name="entity" type="s" direction="in"/>
-        <arg name="is_trusted" type="b" direction="out"/>
-      </method>
       <method name="addPeer">
         <arg name="jid" type="s" direction="in"/>
       </method>
       <method name="removePeer">
         <arg name="peer" type="s" direction="in"/>
-      </method>
-      <method name="registerAccount">
-        <arg name="server" type="s" direction="in"/>
-        <arg name="username" type="s" direction="in"/>
-        <arg name="password" type="s" direction="in"/>
       </method>
       <method name="getIdentities">
         <arg name="identities" type="as" direction="out"/>

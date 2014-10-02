@@ -71,38 +71,38 @@ getCredentialsMethod st =
            Done
            ("username" :> Done)
 
-securityHistoryByJidMethod :: Method
-securityHistoryByJidMethod =
-    DBus.Method
-    (DBus.repMethod $ (stub :: Xmpp.Jid -> IO ( [AkeEvent]
-                                              , [ChallengeEvent]
-                                              , [RevocationEvent]
-                                              , [RevocationSignalEvent]
-                                              )))
-    "securityHistoryByJID" ("peer" :> Done )
-    ( "ake_events"
-      :> "challenge_events"
-      :> "revocation_events"
-      :> "revocation_signal_events"
-      :> Done
-    )
+-- securityHistoryByJidMethod :: Method
+-- securityHistoryByJidMethod =
+--     DBus.Method
+--     (DBus.repMethod $ (stub :: Xmpp.Jid -> IO ( [AkeEvent]
+--                                               , [ChallengeEvent]
+--                                               , [RevocationEvent]
+--                                               , [RevocationSignalEvent]
+--                                               )))
+--     "securityHistoryByJID" ("peer" :> Done )
+--     ( "ake_events"
+--       :> "challenge_events"
+--       :> "revocation_events"
+--       :> "revocation_signal_events"
+--       :> Done
+--     )
 
 
-securityHistoryByKeyIdMethod :: Method
-securityHistoryByKeyIdMethod =
-    DBus.Method
-    (DBus.repMethod $ (stub :: Xmpp.Jid -> IO ( [AkeEvent]
-                                         , [ChallengeEvent]
-                                         , [RevocationEvent]
-                                         , [RevocationSignalEvent]
-                                         )))
-    "securityHistoryByKeyID" ("key_id" :> Done)
-    ("ake_events"
-     :> "challenge_events"
-     :> "revocation_events"
-     :> "revocation_signal_events"
-     :> Done
-    )
+-- securityHistoryByKeyIdMethod :: Method
+-- securityHistoryByKeyIdMethod =
+--     DBus.Method
+--     (DBus.repMethod $ (stub :: Xmpp.Jid -> IO ( [AkeEvent]
+--                                          , [ChallengeEvent]
+--                                          , [RevocationEvent]
+--                                          , [RevocationSignalEvent]
+--                                          )))
+--     "securityHistoryByKeyID" ("key_id" :> Done)
+--     ("ake_events"
+--      :> "challenge_events"
+--      :> "revocation_events"
+--      :> "revocation_signal_events"
+--      :> Done
+--     )
 
 removeChallengeMethod :: PSState -> DBus.Method
 removeChallengeMethod st =
@@ -171,11 +171,11 @@ respondChallengeMethod st =
     "respondChallenge" ("peer" :> "secret" :> Done)
     Done
 
-getTrustStatusMethod :: Method
-getTrustStatusMethod =
-    DBus.Method
-    (DBus.repMethod $ (stub :: Text -> IO Bool))
-    "getTrustStatus" ("entity" :> Done) "is_trusted"
+-- getTrustStatusMethod :: Method
+-- getTrustStatusMethod =
+--     DBus.Method
+--     (DBus.repMethod $ (stub :: Text -> IO Bool))
+--     "getTrustStatus" ("entity" :> Done) "is_trusted"
 
 addPeerMethod :: PSState -> Method
 addPeerMethod st =
@@ -192,13 +192,13 @@ removePeerMethod st =
     "removePeer" ("peer" :> Done)
     Done
 
-registerAccountMethod :: Method
-registerAccountMethod =
-    DBus.Method
-    (DBus.repMethod $ (stub :: Text -> Text -> Text -> IO ()))
-    "registerAccount" ("server" :> "username" :> "password"
-                        :> Done)
-    Done
+-- registerAccountMethod :: Method
+-- registerAccountMethod =
+--     DBus.Method
+--     (DBus.repMethod $ (stub :: Text -> Text -> Text -> IO ()))
+--     "registerAccount" ("server" :> "username" :> "password"
+--                         :> Done)
+--     Done
 
 setIdentityMethod :: PSState -> Method
 setIdentityMethod st =
@@ -253,17 +253,17 @@ xmppInterface st = Interface
                 [ createIdentityMethod st
                 , initializeMethod st
                 , markKeyVerifiedMethod st
-                , securityHistoryByJidMethod
-                , securityHistoryByKeyIdMethod
+                -- , securityHistoryByJidMethod
+                -- , securityHistoryByKeyIdMethod
                 , setIdentityMethod st
                 , revokeIdentityMethod
                 , initiateChallengeMethod st
                 , respondChallengeMethod st
                 , removeChallengeMethod st
-                , getTrustStatusMethod
+                -- , getTrustStatusMethod
                 , addPeerMethod st
                 , removePeerMethod st
-                , registerAccountMethod
+                -- , registerAccountMethod
                 , getIdentitiesMethod
                 , setCredentialsMethod st
                 , getCredentialsMethod st

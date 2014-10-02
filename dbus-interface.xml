@@ -29,10 +29,6 @@
       </signal>
     </interface>
     <interface name="org.pontarius">
-      <method name="importKey">
-        <arg name="location" type="s" direction="in"/>
-        <arg name="key_id" type="s" direction="out"/>
-      </method>
       <method name="createIdentity">
         <arg name="key_id" type="ay" direction="out"/>
       </method>
@@ -41,8 +37,9 @@
         <arg name="available_contacts" type="a{s(sas)}" direction="out"/>
         <arg name="unlinked-peers" type="as" direction="out"/>
       </method>
-      <method name="markKeyVerified">
-        <arg name="key-id" type="s" direction="in"/>
+      <method name="identityVerified">
+        <arg name="key_id" type="s" direction="in"/>
+        <arg name="is_verified" type="b" direction="in"/>
       </method>
       <method name="securityHistoryByJID">
         <arg name="peer" type="s" direction="in"/>

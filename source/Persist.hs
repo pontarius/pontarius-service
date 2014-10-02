@@ -130,6 +130,14 @@ hideChallenge challengeID = runDB $ do
     updateWhere [ChallengeUniqueID ==. challengeID] [ChallengeHidden =. True]
     return ()
 
+setKeyVerified :: MonadIO m => KeyID -> Bool -> PSM m ()
+setKeyVerified keyID isVerified = runDB $ do
+    verifyTime <- if isVerified
+                     then liftM Just $ liftIO getCurrentTime
+                     else return Nothing
+
+    updateWhere [PubIdentKeyID ==. keyID] [PubIdentVerified =. verifyTime]
+
 revokeIdentity :: MonadIO m => KeyID -> ReaderT SqlBackend m ()
 revokeIdentity keyID = do
     now <- liftIO getCurrentTime

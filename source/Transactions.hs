@@ -196,3 +196,6 @@ verifySignature st _peer pk sig pt = runPSM st $ do
 
 newContactM :: PSState -> Text -> IO UUID
 newContactM st name = runPSM st $ newContact name
+
+setKeyVerifiedM :: KeyID -> Bool -> PSM IO ()
+setKeyVerifiedM = setKeyVerified

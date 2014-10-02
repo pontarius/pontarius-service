@@ -171,11 +171,18 @@ respondChallengeMethod st =
     "respondChallenge" ("peer" :> "secret" :> Done)
     Done
 
-getTrustStatusMethod :: Method
-getTrustStatusMethod =
+getIdentityChallengesMethod :: PSState -> Method
+getIdentityChallengesMethod st =
     DBus.Method
-    (DBus.repMethod $ (stub :: Text -> IO Bool))
-    "getTrustStatus" ("entity" :> Done) "is_trusted"
+    (DBus.repMethod $ getIdentityChallengesM st)
+    "getIdentityChallenges"
+    ("key_id" :> Done) ("challenges" :> Done)
+
+getTrustStatusMethod :: PSState -> Method
+getTrustStatusMethod st =
+    DBus.Method
+    (DBus.repMethod $ isKeyVerifiedM st)
+    "keyTrustStatus" ("key_id" :> Done) "is_trusted"
 
 addPeerMethod :: PSState -> Method
 addPeerMethod st =
@@ -244,7 +251,8 @@ xmppInterface st = Interface
                 , initiateChallengeMethod st
                 , respondChallengeMethod st
                 , removeChallengeMethod st
-                , getTrustStatusMethod
+                , getIdentityChallengesMethod st
+                , getTrustStatusMethod st
                 , addPeerMethod st
                 , removePeerMethod st
                 , registerAccountMethod

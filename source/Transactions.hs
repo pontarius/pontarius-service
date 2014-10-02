@@ -140,31 +140,29 @@ setSigningGpgKeyM st keyFpr = do
                           , errorBody = []
                           }
 
--- getEntityPubkeyM :: Xmpp.Jid -> PSM (MethodHandlerT IO) KeyID
--- getEntityPubkeyM peer = do
---     mbKey <- checkPeerKey
---     case mbKey of
---         Nothing -> lift . methodError $
---                    MsgError { errorName = "org.pontarius.Error.getEntityPubkey"
---                             , errorText = Just "No identity found"
---                             , errorBody = []
---                             }
---         Just key -> return key
-
-getIdentityChallengesM :: Xmpp.Jid ->
-                  PSM IO [(UUID, Xmpp.Jid, Bool, Text, Text, Text, Bool)]
-getIdentityChallengesM peer = do
-    c <- getPeerChallenges peer
-    return $ map (\c -> ( challengeUniqueID c
-                        , challengePeer c
-                        , challengeOutgoing c
-                        , tShow $ challengeStarted c
-                        , maybe "" tShow $ challengeCompleted c
-                        , fromMaybe "" (challengeQuestion c)
-                        , fromMaybe False $ challengeResult c
-                        )) c
+fromChallenge :: Challenge -> (UUID, Xmpp.Jid, Bool, Text, Text, Text, Bool)
+fromChallenge c = ( challengeUniqueID c
+                  , challengePeer c
+                  , challengeOutgoing c
+                  , tShow $ challengeStarted c
+                  , maybe "" tShow $ challengeCompleted c
+                  , fromMaybe "" (challengeQuestion c)
+                  , fromMaybe False $ challengeResult c
+                  )
   where
     tShow = Text.pack . show
+
+getPeerChallengesM :: Xmpp.Jid ->
+                  PSM IO [(UUID, Xmpp.Jid, Bool, Text, Text, Text, Bool)]
+getPeerChallengesM peer = do
+    c <- getPeerChallenges peer
+    return $ map fromChallenge c
+
+getIdentityChallengesM :: PSState -> KeyID ->
+                          IO [(UUID, Xmpp.Jid, Bool, Text, Text, Text, Bool)]
+getIdentityChallengesM st keyID = runPSM st $ do
+    c <- getIdentityChallenges keyID
+    return $ map fromChallenge c
 
 removeChallenge :: UUID -> PSM IO ()
 removeChallenge = hideChallenge
@@ -198,4 +196,20 @@ newContactM :: PSState -> Text -> IO UUID
 newContactM st name = runPSM st $ newContact name
 
 setKeyVerifiedM :: KeyID -> Bool -> PSM IO ()
-setKeyVerifiedM = setKeyVerified
+setKeyVerifiedM keyID trust = setKeyVerified keyID trust
+
+isKeyVerifiedM :: PSState -> KeyID -> MethodHandlerT IO Bool
+isKeyVerifiedM st keyID = runPSM st $ do
+    res <- isKeyVerified keyID
+    case res of
+        Nothing -> lift . methodError $
+                   MsgError "org.pontarius.Error.keyTrustStatus"
+                    (Just $ "No such key") []
+        Just Nothing -> return False
+        Just Just{} -> return True
+
+addContactJidM :: PSState -> UUID -> Xmpp.Jid -> IO ()
+addContactJidM st uuid jid = runPSM st . void $ addContactJid uuid jid
+
+removeContactJidM :: PSState -> Xmpp.Jid -> IO ()
+removeContactJidM st = runPSM st . removeContactJid

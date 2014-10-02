@@ -125,6 +125,16 @@ getPeerChallenges peer
                                ]
                                [Asc ChallengeStarted])
 
+getIdentityChallenges :: (MonadIO m, Functor m) => KeyID -> PSM m [Challenge]
+getIdentityChallenges keyID
+    = map entityVal <$> runDB (selectList
+                               [ ChallengeHidden ==. False
+                               , ChallengeKeyID ==. keyID
+                               ]
+                               [Asc ChallengeStarted])
+
+
+
 hideChallenge :: MonadIO m => UUID -> PSM m ()
 hideChallenge challengeID = runDB $ do
     updateWhere [ChallengeUniqueID ==. challengeID] [ChallengeHidden =. True]
@@ -137,6 +147,11 @@ setKeyVerified keyID isVerified = runDB $ do
                      else return Nothing
 
     updateWhere [PubIdentKeyID ==. keyID] [PubIdentVerified =. verifyTime]
+
+isKeyVerified :: MonadIO m => KeyID -> PSM m (Maybe (Maybe UTCTime))
+isKeyVerified keyID = runDB $ do
+    mbKey <- getBy (UniquePubIdentKey keyID)
+    return $ pubIdentVerified . entityVal <$> mbKey
 
 revokeIdentity :: MonadIO m => KeyID -> ReaderT SqlBackend m ()
 revokeIdentity keyID = do

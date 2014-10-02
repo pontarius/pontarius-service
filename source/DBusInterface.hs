@@ -135,17 +135,11 @@ initializeMethod st =
      :> "unlinked-peers"
      :> Done)
 
-importKeyMethod :: Method
-importKeyMethod =
+markKeyVerifiedMethod :: PSState -> Method
+markKeyVerifiedMethod st =
     DBus.Method
-    (DBus.repMethod $ (stub :: Text -> IO KeyID ))
-    "importKey" ("location" :> Done) "key_id"
-
-markKeyVerifiedMethod :: Method
-markKeyVerifiedMethod =
-    DBus.Method
-    (DBus.repMethod $ (stub :: KeyID -> IO () ))
-    "markKeyVerified" ("key-id" :> Done) Done
+    (DBus.repMethod $ (\kid isV -> runPSM st $ setKeyVerifiedM kid isV ))
+    "identityVerified" ("key_id" :> "is_verified" :> Done) Done
 
 revokeIdentityMethod :: Method
 revokeIdentityMethod =
@@ -162,7 +156,6 @@ createIdentityMethod st =
     Done
     ("key_id" -- key_id of the newly created key
      :> Done)
-
 
 initiateChallengeMethod :: PSState -> Method
 initiateChallengeMethod st =
@@ -241,10 +234,9 @@ unlinkIdentityMethod st =
 
 xmppInterface :: PSState -> Interface
 xmppInterface st = Interface
-                [ importKeyMethod
-                , createIdentityMethod st
+                [ createIdentityMethod st
                 , initializeMethod st
-                , markKeyVerifiedMethod
+                , markKeyVerifiedMethod st
                 , securityHistoryByJidMethod
                 , securityHistoryByKeyIdMethod
                 , setIdentityMethod st
@@ -272,7 +264,6 @@ xmppInterface st = Interface
                 ]
                 [ SomeProperty $ identityProp st
                 ]
-
 
 conObject :: PSState -> Object
 conObject st = object pontariusInterface (xmppInterface st)

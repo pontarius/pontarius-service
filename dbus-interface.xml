@@ -59,6 +59,14 @@
       <method name="removeChallenge">
         <arg name="challenge_id" type="s" direction="in"/>
       </method>
+      <method name="getIdentityChallenges">
+        <arg name="key_id" type="s" direction="in"/>
+        <arg name="challenges" type="a(ssbsssb)" direction="out"/>
+      </method>
+      <method name="keyTrustStatus">
+        <arg name="key_id" type="s" direction="in"/>
+        <arg name="is_trusted" type="b" direction="out"/>
+      </method>
       <method name="addPeer">
         <arg name="jid" type="s" direction="in"/>
       </method>

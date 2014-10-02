@@ -109,6 +109,13 @@
       <method name="unlinkIdentity">
         <arg name="identity" type="s" direction="in"/>
       </method>
+      <method name="linkJID">
+        <arg name="contact" type="s" direction="in"/>
+        <arg name="jid" type="s" direction="in"/>
+      </method>
+      <method name="unlinkJID">
+        <arg name="jid" type="s" direction="in"/>
+      </method>
       <signal name="receivedChallenge">
         <arg name="peer" type="s"/>
         <arg name="question" type="s"/>

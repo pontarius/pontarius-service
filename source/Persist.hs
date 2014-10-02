@@ -163,7 +163,7 @@ addContactJid contactID jid = runDB $ runExceptT $ do
     mbContact <- lift $ getBy (UniqueContact contactID)
     case mbContact of
         Nothing -> throwError ("Contact not found" :: Text)
-        Just c -> void . lift . insert $ ContactJid (entityKey c) jid
+        Just c -> void . lift $ upsert (ContactJid (entityKey c) jid) []
     return ()
 
 removeContactJid :: MonadIO m => Xmpp.Jid -> PSM m ()

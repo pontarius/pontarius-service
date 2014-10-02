@@ -228,6 +228,22 @@ unlinkIdentityMethod st =
                 ("identity" :> Done)
                 Done
 
+linkJidMethod :: PSState -> Method
+linkJidMethod st =
+    DBus.Method (DBus.repMethod $ addContactJidM st)
+                "linkJID"
+                ("contact" :> "jid" :> Done)
+                Done
+
+unlinkJidMethod :: PSState -> Method
+unlinkJidMethod st =
+    DBus.Method (DBus.repMethod $ removeContactJidM st)
+                "unlinkJID"
+                ("jid" :> Done)
+                Done
+
+
+
 ----------------------------------------------------
 -- Objects
 ----------------------------------------------------
@@ -254,6 +270,8 @@ xmppInterface st = Interface
                 , newContactMethod st
                 , linkIdentityMethod st
                 , unlinkIdentityMethod st
+                , linkJidMethod st
+                , unlinkJidMethod st
                 ] []
                 [ SSD receivedChallengeSignal
                 , SSD challengeResultSignal

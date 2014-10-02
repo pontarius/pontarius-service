@@ -199,3 +199,9 @@ newContactM st name = runPSM st $ newContact name
 
 setKeyVerifiedM :: KeyID -> Bool -> PSM IO ()
 setKeyVerifiedM = setKeyVerified
+
+addContactJidM :: PSState -> UUID -> Xmpp.Jid -> IO ()
+addContactJidM st uuid jid = runPSM st . void $ addContactJid uuid jid
+
+removeContactJidM :: PSState -> Xmpp.Jid -> IO ()
+removeContactJidM st = runPSM st . removeContactJid

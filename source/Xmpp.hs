@@ -422,6 +422,8 @@ disableAccount = do
             liftIO . forM_ threads $ killThread
         XmppNoConnection -> return ()
     liftIO  . atomically $ writeTVar xmppRef XmppNoConnection
+    st <- ask
+    liftIO $ runPSM st updateState
 
 
 getSession :: PSM (MethodHandlerT IO) Xmpp.Session

@@ -89,6 +89,12 @@ main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
                                 <> property usernameProp
                                 <> property peersProp
                                 <> property availableEntitiesProp
+    args <- getArgs
+    case args of
+       ["--write-interface", filename] -> do
+           Text.writeFile filename $ introspect "/" False ro
+           exitSuccess
+       _ -> return ()
     logDebug "connecting to dbus"
     con <- makeServer DBus.Session ro
     logDebug "setting dbus session"

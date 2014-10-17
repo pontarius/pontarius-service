@@ -3,10 +3,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# LANGUAGE GADTs#-}
+{-# LANGUAGE QuasiQuotes#-}
 module Main where
 
 import           Control.Applicative
 import           Control.Concurrent.STM
+import           Control.Concurrent
 import           Control.Concurrent.Timeout
 import qualified Control.Exception as Ex
 import           Control.Monad.Reader
@@ -21,16 +23,21 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Monoid
+import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text as Text
 import           Data.Typeable
+import           Data.UUID (UUID)
+import qualified Data.UUID as UUID
 import           FRP.Sodium
 import           Graphics.UI.Gtk
 import           Graphics.UI.Gtk.Reactive
 import           Graphics.UI.Gtk.WidgetBuilder
 import           Graphics.UI.Prototyper
 import           Network.Xmpp (jid, Jid)
+import qualified Network.Xmpp as Xmpp
 import           System.Environment
 import           System.Exit
 import           System.IO
@@ -119,25 +126,13 @@ credentials dbuscon = withVBoxNew $ do
 
 connectionPage con =  withVBoxNew $ do
     withFrame (Just "credentials") $ credentials con
-    withFrame (Just "actions") $ withHBoxNew$  do
-        timedButton "initialize" 250000 $ do
-            res <- liftIO $ (call' initialize () con
-                             :: IO (Either MethodError (PontariusState, Map Text (Text, [Text]), [Text])))
-            logToWindow $ show res
-        timedButton "enable" 250000 . liftIO $
-            (throwME $ DBus.setProperty accountEnabledP True con :: IO ())
-        timedButton "disable" 250000 . liftIO $
-            (throwME $ DBus.setProperty accountEnabledP False con :: IO ())
-
 
 identitiesPage con = withVBoxNew $ do
     (siLabel, _) <- withHBoxNew $ do
         addLabel (Just "selected identity")
         addLabel (Just "<identity>")
-    idWindow <- packGrow $ withListWindow (do
-        keyC <- addColumn "key" [ textRenderer (return . show) ]
-        lift $ set keyC [treeViewColumnExpand := True])
-                         (\id -> liftIO (throwME (call' setIdentity id con) :: IO ()))
+    idWindow <- packGrow $ listWindow [("identity", [render return])] $
+                                 (\id -> liftIO (throwME (call' setIdentity id con) :: IO ()))
     timedButton "getKeys" 500000 . liftIO $ do
         ids <- (throwME $ call' getIdentities () con) :: IO [Text]
         setListWindow idWindow ids
@@ -145,14 +140,47 @@ identitiesPage con = withVBoxNew $ do
         --             :: IO (Either MethodError Text)
         -- labelSetText siLabel (either (const $ "no identity set") show id)
 
--- listView colName action =
---     withListWindow
---         (do col <- addColumn colName [ textRenderer (return . show) ]
---             lift $ set col [treeViewColumnExpand := True])
---         action
+peersPage con = withVBoxNew . packGrow $ do
+    contactsWindow <-
+        withFrame_ (Just "contacts")
+        $ listWindow [("contact", [render $ return . snd])]
+                                            (\_ -> return ())
+    unlinkedWindow <-
+        withFrame_ (Just "unlinked identities")
+        $ listWindow [ ("peer", [render $ return . Xmpp.jidToText . fst])
+                              , ("identity" , [render $ return . snd])
+                              ]
+                              (\_ -> return ())
+    entitiesWindow <- withFrame_ (Just "available peers")
+        $ listWindow [ ("entity", [render $ return . Xmpp.jidToText])]
+                              (\_ -> return ())
+    (status, contacts, peers) <- liftIO (throwME $ call' initialize () con
+                                 :: IO ( PontariusState
+                                       , Map UUID (Text, Set Xmpp.Jid)
+                                       , Map Xmpp.Jid Text))
+    contactE <- liftIO $ signalEvent contactStatusChangedSignal Nothing con
+    peersE <- liftIO $ signalEvent unlinkedIdentityStatusChangedSignal  Nothing con
+    entitiesB <- liftIO $ propertyBehaviour availableEntitiesP con
+    let cUpdateE =
+            for contactE $
+            \(c, cn , s) -> case s of
+                        Available -> Map.insert (c :: UUID) (cn :: Text)
+                        Unavailable -> Map.delete c
+        pUpdateE = for peersE $ \(ident, peer, status) ->
+            case status of
+                Available -> Map.insert (peer :: Jid) (ident :: Text)
+                Unavailable -> Map.delete peer
+    liftIO . sync $ do
+        contactsB <- accum (fmap fst contacts) cUpdateE
+        listen (value contactsB) (\cs -> setListWindow contactsWindow (Map.toAscList cs))
+        peersB <- accum peers pUpdateE
+        listen (value peersB) (\cs -> setListWindow unlinkedWindow (Map.toAscList cs))
 
--- peersPage con = withVBoxNew $ do
---     contacts
+        listen (value entitiesB) $ \ps ->
+            void . forkIO . postGUIAsync $ setListWindow entitiesWindow ps
+  where
+    for = flip fmap
+
 
 -- challengesPage peers con = withVBoxNew $ do
 --     challengesWindow <- listView "challenges" (\id -> return ())
@@ -165,21 +193,30 @@ identitiesPage con = withVBoxNew $ do
 --                               :: IO [(Text, Text, Bool, Text, Text, Text, Bool)])
 --                  setListWindow challengesWindow chals
 
-mkMainView signalChan con = fmap (toWidget . snd) . withNotebook $ do
-    addPage "connection" $ connectionPage con
-    addPage "identities" $ identitiesPage con
-    cStatusE <- liftIO $ signalEvent contactStatusChangedSignal Nothing con
-    logEvent (show <$> (cStatusE :: Event (Text, PeerStatus)))
-    upStatusE <- liftIO $ signalEvent unlinkedIdentityStatusChangedSignal Nothing con
-    logEvent (show <$> (upStatusE :: Event (Text, Jid, PeerStatus)))
-    -- (identView, _) <- addPage "peers" $ peersPage con
-    -- addPage "challenges" $ challengesPage identView con
+mkMainView con = withVBoxNew $ do
+    packNatural . withHButtonBoxNew $ do
+        statusB <- liftIO $ (propertyBehaviour statusP con
+                               :: IO (Behaviour PontariusState))
+        statusLabel <- addLabel (Just "<status>")
+        liftIO . sync $ eventSetLabel statusLabel (Text.pack . show <$> value statusB)
+        timedButton "enable" 250000 . liftIO $
+            (throwME $ DBus.setProperty accountEnabledP True con :: IO ())
+        timedButton "disable" 250000 . liftIO $
+            (throwME $ DBus.setProperty accountEnabledP False con :: IO ())
+    fmap (toWidget . snd) . packGrow . withNotebook $ do
+        addPage "connection" $ connectionPage con
+        addPage "identities" $ identitiesPage con
+        upStatusE <- liftIO $ signalEvent unlinkedIdentityStatusChangedSignal Nothing con
+        logEvent (show <$> (upStatusE :: Event (Text, Jid, PeerStatus)))
+        addPage "peers" $ peersPage con
+        return ()
+        -- addPage "challenges" $ challengesPage identView con
+
 
 main = do
+    updateGlobalLogger "DBus.Reactive" $ setLevel DEBUG
     updateGlobalLogger "DBus" $ setLevel DEBUG
-    sChan <- newTChanIO
-    con <- connectBus Session (\_ _ _ -> return ())
-               (\x y z -> atomically $ writeTChan sChan (x,y,z))
+    con <- connectBus Session ignore ignore
     putStrLn "dbus connected"
     -- let matchPropertiesSignal =
     --         MatchSignal{ matchInterface = Just "org.freedesktop.DBus.Properties"
@@ -188,5 +225,5 @@ main = do
     --                    , matchSender = Just "org.pontarius"
     --                    }
     -- addSignalHandler matchPropertiesSignal mempty print con
-    uiMain (mkMainView sChan con) keymap (return ())
+    uiMain (mkMainView con) keymap (return ())
     return signalChan

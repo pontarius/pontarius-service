@@ -93,7 +93,7 @@ executable client
                      , network
                      , bytestring
                      , transformers
-                     , gtk
+                     , gtk3
                      , containers
                      , prototyper
                      , stm
@@ -103,4 +103,5 @@ executable client
                      , uuid
 --                     , vty-ui
   hs-source-dirs:      client, source
+  ghc-options:         -threaded
   default-language:    Haskell2010

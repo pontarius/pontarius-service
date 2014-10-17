@@ -50,7 +50,6 @@ data AccountState = AccountEnabled
                   | AccountDisabled
                     deriving (Show, Eq)
 
-
 data PeerStatus = Unavailable
                 | Available
                   deriving (Show, Eq)

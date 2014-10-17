@@ -114,7 +114,7 @@ removeChallengeMethod st =
 
 initialize :: PSState
            -> IO ( PontariusState
-                 , Map UUID (Text, Set Xmpp.Jid), [Xmpp.Jid])
+                 , Map UUID (Text, Set Xmpp.Jid), Map Xmpp.Jid KeyID)
 initialize st = do
     let stateRef = view psState st
     (cs, us) <- availableContacts st

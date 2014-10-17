@@ -17,6 +17,7 @@ import           DBus.Property
 import           Data.Monoid
 import qualified Data.Text.IO as Text
 import           Database.Persist.Sqlite
+import           System.Environment
 import           System.Exit
 import           System.Log.Logger
 
@@ -81,7 +82,8 @@ main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
                          PECSTrue
         availableEntitiesProp = mkProperty pontariusObjectPath pontariusInterface
                          "AvailableEntities"
-                         (Just $ runPSM psState getAvailableXmppPeers)
+                         (Just $ runPSM psState getAvailableXmppPeers
+                                 <|> return [])
                          Nothing
                          PECSTrue
         ro = rootObject psState <> property statusProp

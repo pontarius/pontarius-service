@@ -184,12 +184,6 @@ removeContactIdentity :: MonadIO m => KeyID -> PSM m ()
 removeContactIdentity id = runDB $ do
     deleteBy $ UniqueContactIdentity id
 
-getContactByIdentity :: MonadIO m =>
-                        KeyID
-                     -> PSM m (Maybe (Entity ContactIdentity))
-getContactByIdentity id =
-    runDB $ getBy (UniqueContactIdentity id)
-
 getIdentityContact :: MonadIO m => KeyID -> PSM m (Maybe Contact)
 getIdentityContact keyID = runDB $ do
     mbContactId <- getBy (UniqueContactIdentity keyID)

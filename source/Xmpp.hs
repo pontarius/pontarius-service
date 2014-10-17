@@ -144,7 +144,9 @@ setOnline st con p kid = runPSM st $ do
             case Map.lookup c cs of
                 Just ps | Set.null (p `Set.delete` ps )
                     -> liftIO $ emitSignal contactStatusChangedSignal
-                                           (contactUniqueID c, Available) con
+                                           ( contactUniqueID c
+                                           , contactName c
+                                           , Available) con
                 _ -> return () -- Was already set online
 
 setOffline :: MonadIO m =>
@@ -167,7 +169,9 @@ setOffline st con p kid = runPSM st $ do
             case Map.lookup c cs of
                 Just ps | Set.null (p `Set.delete` ps )
                     -> liftIO $ emitSignal contactStatusChangedSignal
-                                           (contactUniqueID c, Unavailable) con
+                                           ( contactUniqueID c
+                                           , contactName c
+                                           , Unavailable) con
                 _ -> return () -- Was already set offline or there are contacts
                                -- remaining
 
@@ -559,7 +563,8 @@ sessionsByIdentity st kid = do
         = toKeyID (E2E.keyID vinfo) == kid
     hasKid _ = False
 
-availableContacts :: PSState -> IO (Map Contact (Set Xmpp.Jid), [Xmpp.Jid])
+availableContacts :: PSState -> IO ( Map Contact (Set Xmpp.Jid)
+                                   , Map Xmpp.Jid KeyID)
 availableContacts st = do
     sessions <- getSessions st
     -- "online" (i.e. authenticated) peers
@@ -567,9 +572,9 @@ availableContacts st = do
     (cs, noCs) <- fmap partitionEithers . forM ops $ \(p, pkId) -> do
         mbC <- runPSM st $ getIdentityContact (toKeyID pkId)
         case mbC of
-            Nothing -> return $ Right p
+            Nothing -> return $ Right (p, toKeyID pkId)
             Just c -> return $ Left $ Map.singleton c (Set.singleton p)
-    return (List.foldl' (Map.unionWith Set.union) Map.empty cs, noCs)
+    return (List.foldl' (Map.unionWith Set.union) Map.empty cs, Map.fromList noCs)
   where
     isAuthenticated (p, E2E.Authenticated{E2E.sessionVerifyInfo = vi})
            = Just (p, E2E.keyID vi)

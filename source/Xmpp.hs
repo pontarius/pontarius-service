@@ -106,14 +106,14 @@ makeE2ECallbacks kid = do
 
                     }
 
-handleStateChange :: MonadIO m =>
-                     PSState
+handleStateChange :: PSState
                   -> DBusConnection
                   -> Xmpp.Jid
                   -> E2E.MsgState
                   -> E2E.MsgState
-                  -> m ()
-handleStateChange st con j oldState newState = case (oldState, newState) of
+                  -> IO ()
+handleStateChange st con j oldState newState =
+    void . forkIO $ case (oldState, newState) of
     (E2E.MsgStatePlaintext, E2E.MsgStateEncrypted vi)
         -> setOnline st con j $ toKeyID (E2E.keyID vi)
     (E2E.MsgStateFinished, E2E.MsgStateEncrypted vi)
@@ -133,21 +133,26 @@ setOnline :: MonadIO m =>
 setOnline st con p kid = runPSM st $ do
     mbContact <- getIdentityContact kid
     case mbContact of
-        Nothing -> liftIO $
-                   emitSignal unlinkedIdentityAvailabilitySignal
+        Nothing -> do
+            liftIO $ emitSignal unlinkedIdentityAvailabilitySignal
                               (kid, p, Available)
                               con
         Just c -> do
+            liftIO $ emitSignal identityAvailabilitySignal
+                                (kid, p, contactUniqueID c, Available)
+                                con
             (cs, _) <- liftIO $ availableContacts st
             -- | Check that the contact wasn't already online (i.e. with other
             -- peers)
             case Map.lookup c cs of
-                Just ps | Set.null (p `Set.delete` ps )
-                    -> liftIO $ emitSignal contactStatusChangedSignal
+                Just ps | Map.null (p `Map.delete` ps )
+                          -> do
+                              liftIO $ emitSignal contactStatusChangedSignal
                                            ( contactUniqueID c
                                            , contactName c
                                            , Available) con
-                _ -> return () -- Was already set online
+                _ -> do
+                    return () -- Was already set online
 
 setOffline :: MonadIO m =>
               PSState
@@ -158,22 +163,26 @@ setOffline :: MonadIO m =>
 setOffline st con p kid = runPSM st $ do
     mbContact <- getIdentityContact kid
     case mbContact of
-        Nothing -> liftIO $
-                   emitSignal unlinkedIdentityAvailabilitySignal
-                              (kid, p, Unavailable)
-                              con
+        Nothing -> liftIO $ do
+            emitSignal unlinkedIdentityAvailabilitySignal
+                (kid, p, Unavailable)
+                con
         Just c -> do
+            liftIO $ emitSignal identityAvailabilitySignal
+                                (kid, p, contactUniqueID c, Unavailable)
+                                con
             (cs, _) <- liftIO $ availableContacts st
             -- | Check that the contact wasn't already online (i.e. with other
             -- peers)
             case Map.lookup c cs of
-                Just ps | Set.null (p `Set.delete` ps )
-                    -> liftIO $ emitSignal contactStatusChangedSignal
+                Just ps | not (Map.null (p `Map.delete` ps )) -> do
+                    return () -- Was already set offline or there are contacts
+                               -- remaining
+                _ -> do
+                    liftIO $ emitSignal contactStatusChangedSignal
                                            ( contactUniqueID c
                                            , contactName c
                                            , Unavailable) con
-                _ -> return () -- Was already set offline or there are contacts
-                               -- remaining
 
 moveIdentity :: PSState
              -> KeyID

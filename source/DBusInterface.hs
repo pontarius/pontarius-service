@@ -269,6 +269,7 @@ xmppInterface st = Interface
                 , SSD peerTrustStatusChangedSignal
                 , SSD subscriptionRequestSignal
                 , SSD unlinkedIdentityAvailabilitySignal
+                , SSD identityAvailabilitySignal
                 ]
                 [ SomeProperty $ identityProp st
                 ]

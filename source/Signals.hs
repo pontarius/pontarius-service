@@ -69,6 +69,11 @@ unlinkedIdentityAvailabilitySignal =
     pontariusSignal "unlinkedIdentityStatusChanged"
                     ("identity" :> "peer" :> "status" :> Done)
 
+identityAvailabilitySignal :: SigD (Text, Xmpp.Jid, UUID, PeerStatus)
+identityAvailabilitySignal =
+    pontariusSignal "identityStatusChanged"
+                    ("identity" :> "peer" :> "contact" :> "status" :> Done)
+
 identityContactMovedSignal :: SigD (Text, UUID)
 identityContactMovedSignal =
     pontariusSignal "identityContactMovedSignal"

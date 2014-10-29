@@ -18,6 +18,7 @@ import           Control.Monad.Reader
 import           Control.Monad.Trans.Resource
 import qualified Data.Foldable as Foldable
 import           Data.Text (Text)
+import qualified Data.Text as Text
 import           Data.Time.Clock
 import           Data.UUID (UUID)
 import qualified Data.UUID.V4 as UUID
@@ -153,8 +154,8 @@ isKeyVerified keyID = runDB $ do
     mbKey <- getBy (UniquePubIdentKey keyID)
     return $ pubIdentVerified . entityVal <$> mbKey
 
-revokeIdentity :: MonadIO m => KeyID -> ReaderT SqlBackend m ()
-revokeIdentity keyID = do
+revokeIdentity :: KeyID -> PSM IO ()
+revokeIdentity keyID = runDB $ do
     now <- liftIO getCurrentTime
     updateWhere [PubIdentKeyID ==. keyID] [PubIdentRevoked =. Just now]
 
@@ -211,3 +212,43 @@ getIdentityContact keyID = runDB $ do
     case mbContactId of
         Nothing -> return Nothing
         Just ct -> get (contactIdentityContact $ entityVal ct)
+
+getContacts :: MonadIO m => PSM m [Contact]
+getContacts = runDB $ do
+    map entityVal <$>  selectList []  []
+
+getContactIds :: MonadIO m => UUID -> PSM m [KeyID]
+getContactIds c = runDB $ do
+    mbContact <- getBy $ UniqueContact c
+    case mbContact of
+     Nothing -> do
+         $logWarn $ Text.pack $ "Contact " ++ show c ++ " does not exist"
+         return []
+     Just contact -> do
+         map (contactIdentityIdentity . entityVal)
+             <$> selectList [ContactIdentityContact ==. entityKey contact] []
+
+getContactJids :: MonadIO m => UUID -> PSM m [Xmpp.Jid]
+getContactJids c = runDB $ do
+    mbContact <- getBy $ UniqueContact c
+    case mbContact of
+     Nothing -> do
+         $logWarn $ Text.pack $ "Contact " ++ show c ++ " does not exist"
+         return []
+     Just contact -> do
+         map (contactJidJid . entityVal)
+             <$> selectList [ContactJidContact ==. entityKey contact] []
+
+deleteContact :: MonadIO m => UUID -> PSM m (Maybe [KeyID])
+deleteContact c = runDB $ do
+    mbContact <- getBy $ UniqueContact c
+    case mbContact of
+     Nothing -> do
+         $logWarn $ Text.pack $ "Contact " ++ show c ++ " does not exist"
+         return Nothing
+     Just (Entity cKey _cVal) -> do
+         deleteWhere [ContactJidContact ==. cKey]
+         ids <- selectList [ContactIdentityContact ==. cKey] []
+         deleteWhere [ContactIdentityContact ==. cKey]
+         deleteBy $ UniqueContact c
+         return $ Just (contactIdentityIdentity . entityVal <$> ids)

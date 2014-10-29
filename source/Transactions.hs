@@ -7,9 +7,13 @@ import           Control.Concurrent.STM
 import           Control.Lens
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Either
-import           DBus.Types hiding (logDebug)
+import           DBus
+import           DBus.Signal
+import           DBus.Types (methodError)
 import qualified Data.ByteString as BS
+import qualified Data.Map as Map
 import           Data.Maybe
+import qualified Data.Set as Set
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Time.Clock
@@ -20,6 +24,7 @@ import           Basic
 import           Gpg
 import           Persist
 import           Types
+import           Signals
 
 -- | Update the current state when an identifiable condition is found.
 updateState :: MonadIO m => PSM m ()
@@ -167,31 +172,6 @@ getIdentityChallengesM st keyID = runPSM st $ do
 removeChallenge :: UUID -> PSM IO ()
 removeChallenge = hideChallenge
 
-importIdent :: MonadIO m => BS.ByteString -> PSM m [BS.ByteString]
-importIdent ident = do
-    ids <- importKey ident
-    forM_ ids $ addPubIdent . toKeyID
-    return ids
-
-verifySignature :: MonadIO m =>
-                   PSState
-                -> Xmpp.Jid
-                -> BS.ByteString
-                -> BS.ByteString
-                -> BS.ByteString
-                -> m (Maybe BS.ByteString)
-verifySignature st _peer pk sig pt = runPSM st $ do
-    ids <- importIdent pk
-    case ids of
-        [id] -> do
-            verified <- liftIO $ verifyGPG id sig pt
-            logDebug $ "Signature is: "  ++ show verified
-            return $ if verified then (Just id) else Nothing
-        _ -> do
-            logDebug "import resulted in more than one key"
-            return Nothing
-
-
 newContactM :: PSState -> Text -> IO UUID
 newContactM st name = runPSM st $ newContact name
 
@@ -213,3 +193,27 @@ addContactJidM st uuid jid = runPSM st . void $ addContactJid uuid jid
 
 removeContactJidM :: PSState -> Xmpp.Jid -> IO ()
 removeContactJidM st = runPSM st . removeContactJid
+
+getAllContacts :: MonadIO m => PSM m (Map.Map UUID (Text, Set.Set a))
+getAllContacts = do
+    allContacts <-  getContacts
+    return $ Map.fromList [ (contactUniqueID c, (contactName c, Set.empty))
+                          | c <- allContacts
+                          ]
+
+removeContactM :: UUID -> PSM IO ()
+removeContactM c = do
+    con <- liftIO . atomically . readTMVar =<< view psDBusConnection
+    mbIds <- deleteContact c
+    case mbIds of
+     Nothing -> return ()
+     Just ids -> liftIO $ do
+        forM_ ids $ \id -> emitSignal identityUnlinkedSignal id con
+        emitSignal contactRemovedSignal c con
+
+renameContactM :: UUID -> Text -> PSM IO ()
+renameContactM c name = do
+    con <- liftIO . atomically . readTMVar =<< view psDBusConnection
+    renameContact c name
+    liftIO $ emitSignal contactRenamedSignal (c, name) con
+    return ()

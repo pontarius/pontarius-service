@@ -33,7 +33,6 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Set (Set)
-import qualified Data.Set as Set
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
@@ -572,19 +571,57 @@ sessionsByIdentity st kid = do
         = toKeyID (E2E.keyID vinfo) == kid
     hasKid _ = False
 
-availableContacts :: PSState -> IO ( Map Contact (Set Xmpp.Jid)
+
+getContactIdentities :: UUID -> PSM IO (Map KeyID (Set Xmpp.Jid))
+getContactIdentities c = do
+    ids <- getContactIds c
+    st <- ask
+    ids' <- forM ids $ \id -> (\ss -> (id, Map.keysSet ss))
+                              <$> liftIO (sessionsByIdentity st id)
+    return $ Map.fromList ids'
+
+sessionsByJid :: PSState -> Xmpp.Jid -> IO (Map Xmpp.Jid KeyID)
+sessionsByJid st p = do
+    sess <- getSessions st
+    return $ Map.mapMaybeWithKey
+        (\k v -> case  (Xmpp.toBare k == p, v) of
+                  (True, E2E.Authenticated{E2E.sessionVerifyInfo = vinfo})
+                      -> Just $ toKeyID (E2E.keyID vinfo)
+                  _ -> Nothing) sess
+
+getContactPeers :: UUID -> PSM IO (Map Xmpp.Jid (Map Xmpp.Jid KeyID))
+getContactPeers c = do
+    ids <- getContactJids c
+    st <- ask
+    ids' <- forM ids $ \id -> (\ss -> (id, ss))
+                              <$> liftIO (sessionsByJid st id)
+    return $ Map.fromList ids'
+
+availableContacts :: PSState -> IO ( Map Contact (Map Xmpp.Jid KeyID)
                                    , Map Xmpp.Jid KeyID)
 availableContacts st = do
+    logDebug "getting session"
     sessions <- getSessions st
+    logDebug "got session"
     -- "online" (i.e. authenticated) peers
     let ops = mapMaybe isAuthenticated $ Map.toList sessions
     (cs, noCs) <- fmap partitionEithers . forM ops $ \(p, pkId) -> do
+        logDebug $ show p
         mbC <- runPSM st $ getIdentityContact (toKeyID pkId)
         case mbC of
             Nothing -> return $ Right (p, toKeyID pkId)
-            Just c -> return $ Left $ Map.singleton c (Set.singleton p)
-    return (List.foldl' (Map.unionWith Set.union) Map.empty cs, Map.fromList noCs)
+            Just c -> return $ Left $ Map.singleton c (Map.singleton p $ toKeyID pkId)
+    return (List.foldl' (Map.unionWith Map.union) Map.empty cs, Map.fromList noCs)
   where
     isAuthenticated (p, E2E.Authenticated{E2E.sessionVerifyInfo = vi})
            = Just (p, E2E.keyID vi)
     isAuthenticated _ = Nothing
+
+getContactsM :: PSM IO [(Contact, Bool)]
+getContactsM = do
+    cs <- getContacts
+    forM cs $ \c -> do
+        ps <- getContactPeers (contactUniqueID c)
+        return (c, mapAll Map.null ps)
+  where
+    mapAll p m = Map.null $ Map.filter p m

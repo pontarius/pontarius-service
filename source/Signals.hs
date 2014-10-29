@@ -10,9 +10,6 @@ import           DBus.Types
 import           Data.Singletons
 import           Data.UUID (UUID)
 import qualified Network.Xmpp as Xmpp
-
-
-
 import           Data.Text (Text)
 
 import           Basic
@@ -83,3 +80,12 @@ identityUnlinkedSignal :: SigD (Text)
 identityUnlinkedSignal =
     pontariusSignal "identityUnlinkedSignal"
                     ("identity"  :> Done)
+
+contactRemovedSignal :: SigD UUID
+contactRemovedSignal = pontariusSignal "contactRemoved"
+                       ("contact" :> Done)
+
+
+contactRenamedSignal :: SigD (UUID, Text)
+contactRenamedSignal = pontariusSignal "contactRenamed"
+                       ("contact" :> "name" :> Done)

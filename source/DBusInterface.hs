@@ -11,44 +11,23 @@
 module DBusInterface
    (rootObject) where
 
+import           Control.Applicative
 import           Control.Concurrent.STM
-import qualified Control.Exception as Ex
 import           Control.Lens
 import           DBus as DBus
 import           DBus.Types
 import           Data.ByteString (ByteString)
 import           Data.Map (Map)
-import qualified Data.Map as Map
-import           Data.Set (Set)
 import           Data.String
-import           Data.Text (Text)
-import           Data.Typeable (Typeable)
-import           Data.UUID (UUID)
 import qualified Network.Xmpp as Xmpp
 
 import           Basic
 import           Gpg
-import           Persist.Schema
+import           Persist
 import           Signals
 import           Transactions
 import           Types
 import           Xmpp
-
-data Stub = Stub deriving (Show, Typeable)
-
-instance Ex.Exception Stub
-
-class IsStub a where
-    stub :: a
-
-instance IsStub (IO a) where
-    stub = Ex.throwIO Stub
-
-instance IsStub (MethodHandlerT IO a) where
-    stub = methodError $ MsgError "org.pontarius.Error.Stub" Nothing []
-
-instance IsStub b => IsStub (a -> b) where
-    stub = \_ -> stub
 
 ----------------------------------------------------
 -- Methods
@@ -71,38 +50,38 @@ getCredentialsMethod st =
            Done
            ("username" :> Done)
 
-securityHistoryByJidMethod :: Method
-securityHistoryByJidMethod =
-    DBus.Method
-    (DBus.repMethod $ (stub :: Xmpp.Jid -> IO ( [AkeEvent]
-                                              , [ChallengeEvent]
-                                              , [RevocationEvent]
-                                              , [RevocationSignalEvent]
-                                              )))
-    "securityHistoryByJID" ("peer" :> Done )
-    ( "ake_events"
-      :> "challenge_events"
-      :> "revocation_events"
-      :> "revocation_signal_events"
-      :> Done
-    )
+-- securityHistoryByJidMethod :: Method
+-- securityHistoryByJidMethod =
+--     DBus.Method
+--     (DBus.repMethod $ (stub :: Xmpp.Jid -> IO ( [AkeEvent]
+--                                               , [ChallengeEvent]
+--                                               , [RevocationEvent]
+--                                               , [RevocationSignalEvent]
+--                                               )))
+--     "securityHistoryByJID" ("peer" :> Done )
+--     ( "ake_events"
+--       :> "challenge_events"
+--       :> "revocation_events"
+--       :> "revocation_signal_events"
+--       :> Done
+--     )
 
 
-securityHistoryByKeyIdMethod :: Method
-securityHistoryByKeyIdMethod =
-    DBus.Method
-    (DBus.repMethod $ (stub :: Xmpp.Jid -> IO ( [AkeEvent]
-                                         , [ChallengeEvent]
-                                         , [RevocationEvent]
-                                         , [RevocationSignalEvent]
-                                         )))
-    "securityHistoryByKeyID" ("key_id" :> Done)
-    ("ake_events"
-     :> "challenge_events"
-     :> "revocation_events"
-     :> "revocation_signal_events"
-     :> Done
-    )
+-- securityHistoryByKeyIdMethod :: Method
+-- securityHistoryByKeyIdMethod =
+--     DBus.Method
+--     (DBus.repMethod $ (stub :: Xmpp.Jid -> IO ( [AkeEvent]
+--                                          , [ChallengeEvent]
+--                                          , [RevocationEvent]
+--                                          , [RevocationSignalEvent]
+--                                          )))
+--     "securityHistoryByKeyID" ("key_id" :> Done)
+--     ("ake_events"
+--      :> "challenge_events"
+--      :> "revocation_events"
+--      :> "revocation_signal_events"
+--      :> Done
+--     )
 
 removeChallengeMethod :: PSState -> DBus.Method
 removeChallengeMethod st =
@@ -111,19 +90,10 @@ removeChallengeMethod st =
     ("challenge_id" :> Done )
     Done
 
-
-initialize :: PSState
-           -> IO ( PontariusState
-                 , Map UUID (Text, Set Xmpp.Jid), Map Xmpp.Jid KeyID)
+initialize :: PSState -> IO PontariusState
 initialize st = do
     let stateRef = view psState st
-    (cs, us) <- availableContacts st
-    s <- readTVarIO stateRef
-    return (s, contactsMap cs, us)
-  where
-    contactsMap = Map.fromList
-                  . map (\(c, js) -> (contactUniqueID c, (contactName c, js)))
-                  . Map.toList
+    readTVarIO stateRef
 
 initializeMethod :: PSState -> Method
 initializeMethod st =
@@ -131,8 +101,17 @@ initializeMethod st =
     (DBus.repMethod $ initialize st)
     "initialize" Done
     ( "state"
-     :> "available_contacts"
-     :> "unlinked-peers"
+     :> Done)
+
+getUnlinkedPeers :: PSState -> IO (Map Xmpp.Jid KeyID)
+getUnlinkedPeers st = snd <$> availableContacts st
+
+getUnlinkedPeersMethod :: PSState -> Method
+getUnlinkedPeersMethod st =
+    DBus.Method
+    (DBus.repMethod $ getUnlinkedPeers st)
+    "getUnlinkedPeers" Done
+    ( "unlinkedPeers"
      :> Done)
 
 markKeyVerifiedMethod :: PSState -> Method
@@ -141,10 +120,10 @@ markKeyVerifiedMethod st =
     (DBus.repMethod $ (\kid isV -> runPSM st $ setKeyVerifiedM kid isV ))
     "identityVerified" ("key_id" :> "is_verified" :> Done) Done
 
-revokeIdentityMethod :: Method
-revokeIdentityMethod =
+revokeIdentityMethod :: PSState -> Method
+revokeIdentityMethod st =
     DBus.Method
-    (DBus.repMethod $ (revokeIdentity ::  KeyID -> MethodHandlerT IO ()))
+    (DBus.repMethod $ runPSM st . revokeIdentity)
     "revokeIdentity" ("key_id" :> Done) Done
 
 createIdentityMethod :: PSState -> Method
@@ -199,13 +178,13 @@ removePeerMethod st =
     "removePeer" ("peer" :> Done)
     Done
 
-registerAccountMethod :: Method
-registerAccountMethod =
-    DBus.Method
-    (DBus.repMethod $ (stub :: Text -> Text -> Text -> IO ()))
-    "registerAccount" ("server" :> "username" :> "password"
-                        :> Done)
-    Done
+-- registerAccountMethod :: Method
+-- registerAccountMethod =
+--     DBus.Method
+--     (DBus.repMethod $ (stub :: Text -> Text -> Text -> IO ()))
+--     "registerAccount" ("server" :> "username" :> "password"
+--                         :> Done)
+--     Done
 
 setIdentityMethod :: PSState -> Method
 setIdentityMethod st =
@@ -235,41 +214,89 @@ unlinkIdentityMethod st =
                 ("identity" :> Done)
                 Done
 
+getContactsMethod :: PSState -> Method
+getContactsMethod st =
+        DBus.Method (DBus.repMethod $ runPSM st getContactsM)
+        "getContacts"
+        Done
+        ("contacts" :> Done)
+
+
+removeContactMethod :: PSState -> Method
+removeContactMethod st =
+        DBus.Method (DBus.repMethod $ runPSM st . removeContactM)
+        "removeContacts"
+        ("contact" :> Done)
+        Done
+
+renameContactMethod :: PSState -> Method
+renameContactMethod st =
+        DBus.Method (DBus.repMethod $ \c name -> runPSM st
+                                                  $ renameContactM c name)
+        "renameContact"
+        ("contact" :> "name" :> Done)
+        Done
+
+getContactPeersMethod :: PSState -> Method
+getContactPeersMethod st =
+        DBus.Method (DBus.repMethod $ runPSM st . getContactPeers)
+        "getContactPeers"
+        ("contact" :> Done)
+        ("peers" :> Done)
+
+getContactIdentitiesMethod :: PSState -> Method
+getContactIdentitiesMethod st =
+        DBus.Method (DBus.repMethod $ runPSM st . getContactIdentities)
+        "getContactIdentities"
+        ("contact" :> Done)
+        ("identities" :> Done)
+
+
 ----------------------------------------------------
 -- Objects
 ----------------------------------------------------
 
 xmppInterface :: PSState -> Interface
 xmppInterface st = Interface
-                [ createIdentityMethod st
-                , initializeMethod st
-                , markKeyVerifiedMethod st
-                , securityHistoryByJidMethod
-                , securityHistoryByKeyIdMethod
-                , setIdentityMethod st
-                , revokeIdentityMethod
-                , initiateChallengeMethod st
-                , respondChallengeMethod st
-                , removeChallengeMethod st
+                [ addPeerMethod st
+                , createIdentityMethod st
+                , getContactIdentitiesMethod st
+                , getContactPeersMethod st
+                , getContactsMethod st
+                , getCredentialsMethod st
+                , getIdentitiesMethod
                 , getIdentityChallengesMethod st
                 , getTrustStatusMethod st
-                , addPeerMethod st
-                , removePeerMethod st
-                , registerAccountMethod
-                , getIdentitiesMethod
-                , setCredentialsMethod st
-                , getCredentialsMethod st
-                , newContactMethod st
+                , getUnlinkedPeersMethod st
+                , initializeMethod st
+                , initiateChallengeMethod st
                 , linkIdentityMethod st
+                , markKeyVerifiedMethod st
+                , newContactMethod st
+                , removeChallengeMethod st
+                , removeContactMethod st
+                , removePeerMethod st
+                , renameContactMethod st
+                , respondChallengeMethod st
+                , revokeIdentityMethod st
+                , setCredentialsMethod st
+                , setIdentityMethod st
                 , unlinkIdentityMethod st
+                -- , registerAccountMethod
+                -- , securityHistoryByJidMethod
+                -- , securityHistoryByKeyIdMethod
+
                 ] []
-                [ SSD receivedChallengeSignal
-                , SSD challengeResultSignal
+                [ SSD challengeResultSignal
+                , SSD contactRemovedSignal
+                , SSD contactRenamedSignal
                 , SSD contactStatusChangedSignal
+                , SSD identityAvailabilitySignal
+                , SSD identityUnlinkedSignal
                 , SSD peerTrustStatusChangedSignal
+                , SSD receivedChallengeSignal
                 , SSD subscriptionRequestSignal
                 , SSD unlinkedIdentityAvailabilitySignal
-                , SSD identityAvailabilitySignal
                 ]
                 [ SomeProperty $ identityProp st
                 ]

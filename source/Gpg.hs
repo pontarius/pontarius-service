@@ -17,9 +17,9 @@ import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import           Data.Maybe
 import           Data.Monoid
-import           Data.Text (Text)
 import qualified Data.Text.Encoding as Text
 import qualified GpgMe as Gpg
+import qualified Network.Xmpp as Xmpp
 import           System.Log.Logger
 
 --import           Network.Xmpp.E2E
@@ -57,26 +57,26 @@ fromKeyID = Text.encodeUtf8
 toKeyID :: BS.ByteString -> KeyID
 toKeyID = Text.decodeUtf8
 
-revokeIdentity :: MonadIO m => KeyID -> MethodHandlerT m ()
-revokeIdentity keyID = do
-    let text = "" :: Text
-        reason = Gpg.NoReason
-    ctx <- liftIO $ Gpg.ctxNew Nothing
-    keys <- liftIO $ Gpg.findKeyBy ctx True Gpg.keyFingerprint
-              (Just $ fromKeyID keyID)
-    case keys of
-        [key] -> liftIO $ Gpg.revoke ctx key reason text >> return ()
-        [] -> DBus.methodError $
-                   MsgError{ errorName = "org.pontarius.Error.Revoke"
-                           , errorText = Just "Key not found"
-                           , errorBody = []
-                           }
-        _ -> DBus.methodError $
-                   MsgError{ errorName = "org.pontarius.Error.Revoke"
-                           , errorText = Just "Key not unique"
-                           , errorBody = []
-                           }
-    return ()
+-- revokeIdentity :: MonadIO m => KeyID -> MethodHandlerT m ()
+-- revokeIdentity keyID = do
+--     let text = "" :: Text
+--         reason = Gpg.NoReason
+--     ctx <- liftIO $ Gpg.ctxNew Nothing
+--     keys <- liftIO $ Gpg.findKeyBy ctx True Gpg.keyFingerprint
+--               (Just $ fromKeyID keyID)
+--     case keys of
+--         [key] -> liftIO $ Gpg.revoke ctx key reason text >> return ()
+--         [] -> DBus.methodError $
+--                    MsgError{ errorName = "org.pontarius.Error.Revoke"
+--                            , errorText = Just "Key not found"
+--                            , errorBody = []
+--                            }
+--         _ -> DBus.methodError $
+--                    MsgError{ errorName = "org.pontarius.Error.Revoke"
+--                            , errorText = Just "Key not unique"
+--                            , errorBody = []
+--                            }
+--     return ()
 
 setSigningGpgKey :: PSState -> KeyID -> IO Bool
 setSigningGpgKey st keyID = do
@@ -212,3 +212,27 @@ verifyGPG kid sig txt = do
   where
     goodStat Gpg.SigStatGood = True
     goodStat _ = False
+
+importIdent :: MonadIO m => BS.ByteString -> PSM m [BS.ByteString]
+importIdent ident = do
+    ids <- importKey ident
+    forM_ ids $ addPubIdent . toKeyID
+    return ids
+
+verifySignature :: MonadIO m =>
+                   PSState
+                -> Xmpp.Jid
+                -> BS.ByteString
+                -> BS.ByteString
+                -> BS.ByteString
+                -> m (Maybe BS.ByteString)
+verifySignature st _peer pk sig pt = runPSM st $ do
+    ids <- importIdent pk
+    case ids of
+        [id] -> do
+            verified <- liftIO $ verifyGPG id sig pt
+            logDebug $ "Signature is: "  ++ show verified
+            return $ if verified then (Just id) else Nothing
+        _ -> do
+            logDebug "import resulted in more than one key"
+            return Nothing

@@ -42,9 +42,10 @@ challengeResultSignal = pontariusSignal "challengeResult"
                         :> Done
                         )
 
-contactStatusChangedSignal :: SigD (UUID, PeerStatus)
+contactStatusChangedSignal :: SigD (UUID, Text, PeerStatus)
 contactStatusChangedSignal = pontariusSignal "contactStatusChanged"
                              ( "contact"
+                             :> "contact_name"
                              :> "status"
                              :> Done
                              )

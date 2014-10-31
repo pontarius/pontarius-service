@@ -31,10 +31,12 @@ import           Data.Time.Clock.POSIX as Time
 import           Data.Typeable
 import           Data.UUID (UUID)
 import qualified Data.UUID as UUID
+import           Data.Word
 import           Database.Persist.Sqlite
 import qualified Network.Xmpp as Xmpp
 import qualified Network.Xmpp.E2E as Xmpp
 
+type SSID = ByteString
 
 data PontariusState = CredentialsUnset
                     | IdentityNotFound
@@ -69,6 +71,26 @@ instance (Ord a, DBus.Representable a) => DBus.Representable (Set a) where
     type RepType (Set a) = RepType [a]
     toRep = toRep . Set.toList
     fromRep = fmap Set.fromList . fromRep
+
+instance Representable (Maybe KeyID) where
+    type RepType (Maybe KeyID) = RepType KeyID
+    toRep Nothing = toRep Text.empty
+    toRep (Just k) = toRep k
+    fromRep v = case fromRep v of
+        Nothing -> Nothing
+        Just v' | Text.null v' -> Just Nothing
+                | otherwise -> Just (Just v')
+
+instance Representable (Maybe UTCTime) where
+    type RepType (Maybe UTCTime) = RepType UTCTime
+    toRep Nothing = toRep (0 :: Word32)
+    toRep (Just t) = toRep t
+    fromRep v = case fromRep v of
+        Nothing -> Nothing
+        Just t' | t' == (0 :: Word32) -> Just Nothing
+                | otherwise -> Just . Just $ posixSecondsToUTCTime
+                               $ fromIntegral t'
+
 
 data PSProperties = PSProperties{ _pspConnectionStatus :: Property (RepType Bool)}
 

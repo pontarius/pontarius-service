@@ -251,6 +251,21 @@ getContactIdentitiesMethod st =
         ("contact" :> Done)
         ("identities" :> Done)
 
+getSessionByJIDMethod :: PSState -> Method
+getSessionByJIDMethod st =
+    DBus.Method
+    (DBus.repMethod $ runPSM st . getJidSessionsM)
+    "getSessionsByJID"
+    ("jid" :> Done)
+    ("sessions" :> Done)
+
+getSessionByIdentityMethod :: PSState -> Method
+getSessionByIdentityMethod st =
+    DBus.Method
+    (DBus.repMethod $ runPSM st . getJidSessionsM)
+    "getSessionsByIdentity"
+    ("jid" :> Done)
+    ("sessions" :> Done)
 
 ----------------------------------------------------
 -- Objects
@@ -266,6 +281,8 @@ xmppInterface st = Interface
                 , getCredentialsMethod st
                 , getIdentitiesMethod
                 , getIdentityChallengesMethod st
+                , getSessionByIdentityMethod st
+                , getSessionByJIDMethod st
                 , getTrustStatusMethod st
                 , getUnlinkedPeersMethod st
                 , initializeMethod st

@@ -217,3 +217,9 @@ renameContactM c name = do
     renameContact c name
     liftIO $ emitSignal contactRenamedSignal (c, name) con
     return ()
+
+getIdentitySessionsM :: KeyID -> PSM IO [Session]
+getIdentitySessionsM = getIdentitySessions
+
+getJidSessionsM :: Xmpp.Jid -> PSM IO [Session]
+getJidSessionsM = getJidSessions

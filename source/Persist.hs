@@ -179,7 +179,7 @@ addContactJid contactID jid = runDB $ runExceptT $ do
     mbContact <- lift $ getBy (UniqueContact contactID)
     case mbContact of
         Nothing -> throwError ("Contact not found" :: Text)
-        Just c -> void . lift . insert $ ContactJid (entityKey c) jid
+        Just c -> void . lift $ upsert (ContactJid (entityKey c) jid) []
     return ()
 
 removeContactJid :: MonadIO m => Xmpp.Jid -> PSM m ()
@@ -199,6 +199,12 @@ setContactIdentity contactID ident = runDB $ runExceptT $  do
 removeContactIdentity :: MonadIO m => KeyID -> PSM m ()
 removeContactIdentity id = runDB $ do
     deleteBy $ UniqueContactIdentity id
+
+getContactByIdentity :: MonadIO m =>
+                        KeyID
+                     -> PSM m (Maybe (Entity ContactIdentity))
+getContactByIdentity id =
+    runDB $ getBy (UniqueContactIdentity id)
 
 getIdentityContact :: MonadIO m => KeyID -> PSM m (Maybe Contact)
 getIdentityContact keyID = runDB $ do
@@ -246,3 +252,31 @@ deleteContact c = runDB $ do
          deleteWhere [ContactIdentityContact ==. cKey]
          deleteBy $ UniqueContact c
          return $ Just (contactIdentityIdentity . entityVal <$> ids)
+
+addSession :: MonadIO m =>
+              SessionID
+           -> Maybe KeyID
+           -> Xmpp.Jid
+           -> Xmpp.Jid
+           -> PSM m ()
+addSession sid ident local remote = do
+    sk <- fmap privIdentKeyID `liftM` getSigningKey
+    now <- liftIO $ getCurrentTime
+    runDB . insert $ Session sid sk ident local remote now Nothing
+    return ()
+
+concludeSession :: MonadIO m => SessionID -> PSM m ()
+concludeSession sid = do
+    now <- liftIO getCurrentTime
+    runDB $ updateWhere [ SessionSessionID ==. sid
+                        , SessionConcluded ==. Nothing
+                        ] [SessionConcluded =. Just now]
+    return ()
+
+getIdentitySessions :: MonadIO m => KeyID -> PSM m [Session]
+getIdentitySessions id = liftM (map entityVal) $
+    runDB $ selectList [SessionPubIdentID ==. Just id] [Asc SessionInitiated]
+
+getJidSessions :: MonadIO m => Xmpp.Jid -> PSM m [Session]
+getJidSessions jid = liftM (map entityVal) $
+    runDB $ selectList [SessionRemoteJid ==. jid] [Asc SessionInitiated]

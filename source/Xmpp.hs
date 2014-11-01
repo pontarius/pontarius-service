@@ -113,23 +113,42 @@ handleStateChange :: PSState
                   -> IO ()
 handleStateChange st con j oldState newState =
     void . forkIO $ case (oldState, newState) of
-    (E2E.MsgStatePlaintext, E2E.MsgStateEncrypted vi)
-        -> setOnline st con j $ toKeyID (E2E.keyID vi)
-    (E2E.MsgStateFinished, E2E.MsgStateEncrypted vi)
-        -> setOnline st con j $ toKeyID (E2E.keyID vi)
-    (E2E.MsgStateEncrypted vi, E2E.MsgStatePlaintext)
-        -> setOffline st con j $ toKeyID (E2E.keyID vi)
-    (E2E.MsgStateEncrypted vi, E2E.MsgStateFinished)
-        -> setOffline st con j $ toKeyID (E2E.keyID vi)
+    (E2E.MsgStatePlaintext, E2E.MsgStateEncrypted vi sid)
+        -> setOnline st con j sid $ toKeyID (E2E.keyID vi)
+    (E2E.MsgStateFinished, E2E.MsgStateEncrypted vi sid)
+        -> setOnline st con j sid $ toKeyID (E2E.keyID vi)
+    (E2E.MsgStateEncrypted vi sid, E2E.MsgStatePlaintext)
+        -> setOffline st con j sid $ toKeyID (E2E.keyID vi)
+    (E2E.MsgStateEncrypted vi sid, E2E.MsgStateFinished)
+        -> setOffline st con j sid $ toKeyID (E2E.keyID vi)
     _ -> return ()
+
+ourJid :: PSState -> IO (Maybe Xmpp.Jid)
+ourJid st = runMaybeT $ do
+    (xmppCon, ctx) <- (liftIO . atomically . readTVar $ view psXmppCon st)
+                      >>= \case
+         XmppConnected c ctx _ -> return (c, ctx)
+         _ -> do
+             logError "Xmpp connection not established"
+             mzero
+    liftIO (Xmpp.getJid xmppCon) >>= \case
+        Just w -> return w
+        Nothing -> do
+            logError "No local JID set"
+            mzero
 
 setOnline :: MonadIO m =>
              PSState
           -> DBusConnection
           -> Xmpp.Jid
+          -> SSID
           -> KeyID
           -> m ()
-setOnline st con p kid = runPSM st $ do
+setOnline st con p sid kid = runPSM st $ do
+    mbWe <- liftIO $ ourJid st
+    case mbWe of
+     Nothing -> return ()
+     Just we -> addSession sid (Just kid) we p
     mbContact <- getIdentityContact kid
     case mbContact of
         Nothing -> do
@@ -157,9 +176,11 @@ setOffline :: MonadIO m =>
               PSState
            -> DBusConnection
            -> Xmpp.Jid
+           -> SSID
            -> KeyID
            -> m ()
-setOffline st con p kid = runPSM st $ do
+setOffline st con p sid kid = runPSM st $ do
+    concludeSession sid
     mbContact <- getIdentityContact kid
     case mbContact of
         Nothing -> liftIO $ do
@@ -193,16 +214,12 @@ moveIdentity st kid mbNewContact = runPSM st $ do
     unless (mbContact == mbNewContact) $ case mbNewContact of
         Just c -> do
             ps <- Map.keys <$> liftIO (sessionsByIdentity st kid)
-            forM_ ps $ \p -> setOffline st con p kid
             _ <- setContactIdentity c kid
             liftIO $ emitSignal identityContactMovedSignal (kid, c) con
-            forM_ ps $ \p -> setOnline st con p kid
         Nothing -> do
             ps <- Map.keys <$> liftIO (sessionsByIdentity st kid)
-            forM_ ps $ \p -> setOffline st con p kid
             _ <- removeContactIdentity kid
             liftIO $ emitSignal identityUnlinkedSignal kid con
-            forM_ ps $ \p -> setOnline st con p kid
 
 -- | Make a single attempt to connect to the xmpp server
 --
@@ -274,6 +291,7 @@ tryConnect key st = runPSM st $ do
     osc = Xmpp.streamConfigurationL . Xmpp.tlsParamsL
             . clientHooksL . onServerCertificateL
     policy _peer = return $ Just True -- TODO: cross-check with DB
+
 
 ake :: PSState -> Xmpp.Jid -> IO ()
 ake st them = liftM (maybe () id) . runMaybeT $ do

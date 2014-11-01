@@ -37,11 +37,13 @@ RevocationSignal
 -- an identity in the session.
 Session
     sessionID SessionID
-    privIDentID KeyID Maybe
-    pubIDentID KeyID Maybe
-    local Jid
-    remote Jid
-    date UTCTime
+    privIdentID KeyID Maybe
+    pubIdentID KeyID Maybe
+    localJid Jid
+    remoteJid Jid
+    initiated UTCTime Asc
+    concluded UTCTime Maybe
+    UniqueSession sessionID
 
 -- Challenges. A `Nothing' question means a query for a shared password. A
 -- `Nothing' result means that a timeout occured.

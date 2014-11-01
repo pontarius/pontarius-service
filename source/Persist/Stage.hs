@@ -39,7 +39,7 @@ instance PersistFieldSql Jid where
 
 pLensRules :: [Char] -> LensRules
 pLensRules pr = lensRules & lensField
-                   .~ (\_ f -> fmap (TopName . mkName . downcase) .
+                   .~ (\_ _ f -> fmap (TopName . mkName . downcase) .
                                  maybeToList . List.stripPrefix pr . (++ "L")
                                  . nameBase $ f)
   where

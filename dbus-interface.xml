@@ -56,6 +56,14 @@
 	<arg name="key_id" type="s" direction="in"/>
 	<arg name="challenges" type="a(ssbsssb)" direction="out"/>
       </method>
+      <method name="getSessionsByIdentity">
+	<arg name="jid" type="s" direction="in"/>
+	<arg name="sessions" type="a(ayssssuu)" direction="out"/>
+      </method>
+      <method name="getSessionsByJID">
+	<arg name="jid" type="s" direction="in"/>
+	<arg name="sessions" type="a(ayssssuu)" direction="out"/>
+      </method>
       <method name="keyTrustStatus">
 	<arg name="key_id" type="s" direction="in"/>
 	<arg name="is_trusted" type="b" direction="out"/>
@@ -160,8 +168,6 @@
       <property name="Status" type="y" access="read"/>
       <property name="AccountEnabled" type="b" access="readwrite"/>
       <property name="Username" type="s" access="read"/>
-      <property name="Peers" type="a(sb)" access="read"/>
-      <property name="AvailableEntities" type="as" access="read"/>
     </interface>
   </node>
 </node>

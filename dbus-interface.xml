@@ -4,28 +4,28 @@
   <node name="pontarius">
     <interface name="org.freedesktop.DBus.Introspectable">
       <method name="Introspect">
-        <arg name="xml_data" type="s" direction="out"/>
+	<arg name="xml_data" type="s" direction="out"/>
       </method>
     </interface>
     <interface name="org.freedesktop.DBus.Properties">
       <method name="Get">
-        <arg name="interface_name" type="s" direction="in"/>
-        <arg name="property_name" type="s" direction="in"/>
-        <arg name="value" type="v" direction="out"/>
+	<arg name="interface_name" type="s" direction="in"/>
+	<arg name="property_name" type="s" direction="in"/>
+	<arg name="value" type="v" direction="out"/>
       </method>
       <method name="Set">
-        <arg name="interface_name" type="s" direction="in"/>
-        <arg name="property_name" type="s" direction="in"/>
-        <arg name="value" type="v" direction="in"/>
+	<arg name="interface_name" type="s" direction="in"/>
+	<arg name="property_name" type="s" direction="in"/>
+	<arg name="value" type="v" direction="in"/>
       </method>
       <method name="GetAll">
-        <arg name="interface_name" type="s" direction="in"/>
-        <arg name="props" type="a{sv}" direction="out"/>
+	<arg name="interface_name" type="s" direction="in"/>
+	<arg name="props" type="a{sv}" direction="out"/>
       </method>
       <signal name="PropertiesChanged">
-        <arg name="interface_name" type="s"/>
-        <arg name="changed_properties" type="a{sv}"/>
-        <arg name="invalidated_properties" type="as"/>
+	<arg name="interface_name" type="s"/>
+	<arg name="changed_properties" type="a{sv}"/>
+	<arg name="invalidated_properties" type="as"/>
       </signal>
     </interface>
     <interface name="org.pontarius">
@@ -33,7 +33,7 @@
 	<arg name="jid" type="s" direction="in"/>
       </method>
       <method name="createIdentity">
-        <arg name="key_id" type="ay" direction="out"/>
+	<arg name="key_id" type="ay" direction="out"/>
       </method>
       <method name="getContactIdentities">
 	<arg name="contact" type="s" direction="in"/>
@@ -56,6 +56,14 @@
 	<arg name="key_id" type="s" direction="in"/>
 	<arg name="challenges" type="a(ssbsssb)" direction="out"/>
       </method>
+      <method name="getSessionsByIdentity">
+	<arg name="jid" type="s" direction="in"/>
+	<arg name="sessions" type="a(ayssssuu)" direction="out"/>
+      </method>
+      <method name="getSessionsByJID">
+	<arg name="jid" type="s" direction="in"/>
+	<arg name="sessions" type="a(ayssssuu)" direction="out"/>
+      </method>
       <method name="keyTrustStatus">
 	<arg name="key_id" type="s" direction="in"/>
 	<arg name="is_trusted" type="b" direction="out"/>
@@ -67,9 +75,9 @@
 	<arg name="state" type="y" direction="out"/>
       </method>
       <method name="initiateChallenge">
-        <arg name="peer" type="s" direction="in"/>
-        <arg name="question" type="s" direction="in"/>
-        <arg name="secret" type="s" direction="in"/>
+	<arg name="peer" type="s" direction="in"/>
+	<arg name="question" type="s" direction="in"/>
+	<arg name="secret" type="s" direction="in"/>
       </method>
       <method name="linkIdentity">
 	<arg name="identity" type="s" direction="in"/>
@@ -104,27 +112,20 @@
 	<arg name="key_id" type="s" direction="in"/>
       </method>
       <method name="setCredentials">
-        <arg name="username" type="s" direction="in"/>
-        <arg name="password" type="s" direction="in"/>
+	<arg name="username" type="s" direction="in"/>
+	<arg name="password" type="s" direction="in"/>
       </method>
       <method name="setIdentity">
 	<arg name="keyID" type="s" direction="in"/>
       </method>
       <method name="unlinkIdentity">
-        <arg name="identity" type="s" direction="in"/>
-      </method>
-      <method name="linkJID">
-        <arg name="contact" type="s" direction="in"/>
-        <arg name="jid" type="s" direction="in"/>
-      </method>
-      <method name="unlinkJID">
-        <arg name="jid" type="s" direction="in"/>
+	<arg name="identity" type="s" direction="in"/>
       </method>
       <signal name="challengeResult">
-        <arg name="peer" type="s"/>
-        <arg name="challenge_id" type="s"/>
-        <arg name="initiator" type="s"/>
-        <arg name="result" type="b"/>
+	<arg name="peer" type="s"/>
+	<arg name="challenge_id" type="s"/>
+	<arg name="initiator" type="s"/>
+	<arg name="result" type="b"/>
       </signal>
       <signal name="contactRemoved">
 	<arg name="contact" type="s"/>
@@ -134,8 +135,9 @@
 	<arg name="name" type="s"/>
       </signal>
       <signal name="contactStatusChanged">
-        <arg name="contact" type="s"/>
-        <arg name="status" type="y"/>
+	<arg name="contact" type="s"/>
+	<arg name="contact_name" type="s"/>
+	<arg name="status" type="y"/>
       </signal>
       <signal name="identityStatusChanged">
 	<arg name="identity" type="s"/>
@@ -147,27 +149,25 @@
 	<arg name="identity" type="s"/>
       </signal>
       <signal name="peerTrustStatusChanged">
-        <arg name="peer" type="s"/>
-        <arg name="trust_status" type="b"/>
+	<arg name="peer" type="s"/>
+	<arg name="trust_status" type="b"/>
       </signal>
       <signal name="receivedChallenge">
 	<arg name="peer" type="s"/>
 	<arg name="question" type="s"/>
       </signal>
       <signal name="subscriptionRequest">
-        <arg name="peer" type="s"/>
+	<arg name="peer" type="s"/>
       </signal>
       <signal name="unlinkedIdentityStatusChanged">
-        <arg name="identity" type="s"/>
-        <arg name="peer" type="s"/>
-        <arg name="status" type="y"/>
+	<arg name="identity" type="s"/>
+	<arg name="peer" type="s"/>
+	<arg name="status" type="y"/>
       </signal>
       <property name="Identity" type="s" access="read"/>
       <property name="Status" type="y" access="read"/>
       <property name="AccountEnabled" type="b" access="readwrite"/>
       <property name="Username" type="s" access="read"/>
-      <property name="Peers" type="a(sb)" access="read"/>
-      <property name="AvailableEntities" type="as" access="read"/>
     </interface>
   </node>
 </node>

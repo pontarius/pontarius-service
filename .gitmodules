@@ -1,0 +1,9 @@
+[submodule "pontarius-xmpp-e2e"]
+	path = pontarius-xmpp-e2e
+	url = git@github.com:pontarius/pontarius-xmpp-e2e.git
+[submodule "pontarius-gpg"]
+	path = pontarius-gpg
+	url = git@github.com:pontarius/pontarius-gpg.git
+[submodule "d-bus"]
+	path = d-bus
+	url = git@github.com:Philonous/d-bus.git

@@ -17,6 +17,7 @@ import           DBus.Property
 import           Data.Monoid
 import qualified Data.Text.IO as Text
 import           Database.Persist.Sqlite
+import           System.Environment
 import           System.Exit
 import           System.Log.Logger
 
@@ -77,6 +78,12 @@ main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
         ro = rootObject psState <> property statusProp
                                 <> property enabledProp
                                 <> property usernameProp
+    args <- getArgs
+    case args of
+       ["--write-interface", filename] -> do
+           Text.writeFile filename $ introspect "/" False ro
+           exitSuccess
+       _ -> return ()
     logDebug "connecting to dbus"
     con <- makeServer DBus.Session ro
     logDebug "setting dbus session"

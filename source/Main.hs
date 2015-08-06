@@ -75,9 +75,21 @@ main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
                          (Just (getCredentialsM psState))
                          Nothing
                          PECSTrue
+        peersProp = mkProperty  pontariusObjectPath pontariusInterface
+                         "Peers"
+                         (Just . lift . atomically $ getPeersSTM psState)
+                         Nothing
+                         PECSTrue
+        availableEntitiesProp = mkProperty pontariusObjectPath pontariusInterface
+                         "AvailableEntities"
+                         (Just $ runPSM psState getAvailableXmppPeers)
+                         Nothing
+                         PECSTrue
         ro = rootObject psState <> property statusProp
                                 <> property enabledProp
                                 <> property usernameProp
+                                <> property peersProp
+                                <> property availableEntitiesProp
     args <- getArgs
     case args of
        ["--write-interface", filename] -> do

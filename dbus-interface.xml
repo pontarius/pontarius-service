@@ -168,6 +168,8 @@
       <property name="Status" type="y" access="read"/>
       <property name="AccountEnabled" type="b" access="readwrite"/>
       <property name="Username" type="s" access="read"/>
+      <property name="Peers" type="a(sb)" access="read"/>
+      <property name="AvailableEntities" type="as" access="read"/>
     </interface>
   </node>
 </node>

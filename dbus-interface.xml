@@ -121,6 +121,12 @@
       <method name="unlinkIdentity">
 	<arg name="identity" type="s" direction="in"/>
       </method>
+      <method name="ignorePeer">
+	<arg name="jid" type="s" direction="in"/>
+      </method>
+      <method name="unignorePeer">
+	<arg name="jid" type="s" direction="in"/>
+      </method>
       <signal name="challengeResult">
 	<arg name="peer" type="s"/>
 	<arg name="challenge_id" type="s"/>

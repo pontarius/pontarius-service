@@ -262,7 +262,7 @@ addSession :: MonadIO m =>
 addSession sid ident local remote = do
     sk <- fmap privIdentKeyID `liftM` getSigningKey
     now <- liftIO $ getCurrentTime
-    runDB . insert $ Session sid sk ident local remote now Nothing
+    _ <- runDB . insert $ Session sid sk ident local remote now Nothing
     return ()
 
 concludeSession :: MonadIO m => SessionID -> PSM m ()
@@ -280,3 +280,20 @@ getIdentitySessions id = liftM (map entityVal) $
 getJidSessions :: MonadIO m => Xmpp.Jid -> PSM m [Session]
 getJidSessions jid = liftM (map entityVal) $
     runDB $ selectList [SessionRemoteJid ==. jid] [Asc SessionInitiated]
+
+peerIgnored :: MonadIO m => Xmpp.Jid -> PSM m Bool
+peerIgnored jid = runDB $ do
+    mbP <- getBy (UniqueIgnoredPeer jid)
+    return $ case mbP of
+              Nothing -> False
+              Just _ -> True
+
+ignorePeer :: Xmpp.Jid -> PSM IO ()
+ignorePeer jid = runDB $ do
+    _ <- upsert (IgnoredPeer jid) []
+    return ()
+
+unignorePeer :: Xmpp.Jid -> PSM IO ()
+unignorePeer jid = runDB $ do
+    deleteWhere [IgnoredPeerJid ==. jid]
+    return ()

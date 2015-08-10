@@ -16,7 +16,6 @@ module Persist.Schema where
 import           Control.Lens
 import           DBus hiding (Session)
 import           Data.Text (Text)
-import qualified Data.Text as Text
 import           Data.Time.Clock
 import           Data.UUID (UUID)
 import           Database.Persist

@@ -267,6 +267,23 @@ getSessionByIdentityMethod st =
     ("jid" :> Done)
     ("sessions" :> Done)
 
+
+ignorePeerMethod :: PSState -> Method
+ignorePeerMethod st =
+    DBus.Method
+    (DBus.repMethod $ runPSM st . ignorePeer)
+    "ignorePeer"
+    ("jid" :> Done)
+    Done
+
+unignorePeerMethod :: PSState -> Method
+unignorePeerMethod st =
+    DBus.Method
+    (DBus.repMethod $ runPSM st . unignorePeer)
+    "unignorePeer"
+    ("jid" :> Done)
+    Done
+
 ----------------------------------------------------
 -- Objects
 ----------------------------------------------------
@@ -299,6 +316,8 @@ xmppInterface st = Interface
                 , setCredentialsMethod st
                 , setIdentityMethod st
                 , unlinkIdentityMethod st
+                , ignorePeerMethod st
+                , unignorePeerMethod st
                 -- , registerAccountMethod
                 -- , securityHistoryByJidMethod
                 -- , securityHistoryByKeyIdMethod

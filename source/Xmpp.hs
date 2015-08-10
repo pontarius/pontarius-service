@@ -623,12 +623,18 @@ availableContacts st = do
     logDebug "got session"
     -- "online" (i.e. authenticated) peers
     let ops = mapMaybe isAuthenticated $ Map.toList sessions
-    (cs, noCs) <- fmap partitionEithers . forM ops $ \(p, pkId) -> do
+    (cs, noCs) <- fmap (partitionEithers . catMaybes) . forM ops
+      $ \(p, pkId) -> do
         logDebug $ show p
         mbC <- runPSM st $ getIdentityContact (toKeyID pkId)
         case mbC of
-            Nothing -> return $ Right (p, toKeyID pkId)
-            Just c -> return $ Left $ Map.singleton c (Map.singleton p $ toKeyID pkId)
+            Nothing -> do
+                pi <- runPSM st $ peerIgnored p
+                case pi of
+                 True -> return Nothing
+                 False -> return . Just $ Right (p, toKeyID pkId)
+            Just c -> return . Just . Left
+                        $ Map.singleton c (Map.singleton p $ toKeyID pkId)
     return (List.foldl' (Map.unionWith Map.union) Map.empty cs, Map.fromList noCs)
   where
     isAuthenticated (p, E2E.Authenticated{E2E.sessionVerifyInfo = vi})

@@ -68,9 +68,14 @@ HostCredentials
 
 Contact
     uniqueID UUID Eq
-    name Text
     UniqueContact uniqueID
+    name Text
     deriving Show Eq Ord
+
+-- Peers (JIDs) that should not be shown as unlinked
+IgnoredPeer
+    jid Jid
+    UniqueIgnoredPeer jid
 
 ContactJid
     contact ContactId

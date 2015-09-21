@@ -1,0 +1,100 @@
+#!/bin/sh
+
+set -e
+
+DOCKERCMD="docker"
+
+PROSODYCONTAINER="pontarius-prosody"
+
+if [ docker ps &> /dev/null ]
+then
+    DOCKER="$DOCKERCMD"
+else
+    DOCKER="sudo $DOCKERCMD"
+fi
+
+start_prosody() {
+    echo "$DOCKER ps | grep $PROSODYCONTAINER"
+    if [[ -z $($DOCKER ps | grep $PROSODYCONTAINER) ]]
+    then
+        # check that the container is not stopped
+        if [[ -z $($DOCKER ps -a | grep $PROSODYCONTAINER) ]]
+        then
+            $DOCKER run -d --name pontarius-prosody -p 5222:5222 prosody-pontarius
+        else
+            $DOCKER start $PROSODYCONTAINER
+        fi
+
+    fi
+}
+
+stop_prosody() {
+    if [[ -n $($DOCKER ps | grep $PROSODYCONTAINER) ]]
+    then
+        $DOCKER stop $PROSODYCONTAINER
+    fi
+    if [[ -n $($DOCKER ps -a | grep $PROSODYCONTAINER) ]]
+    then
+        $DOCKER rm $PROSODYCONTAINER
+    fi
+}
+
+stop() {
+    echo "stopping"
+    $DOCKER ps | tail -n+2 | grep -E 'pontarius-service(-[[:alnum:]]*)*\b' | awk '{print $1}' | xargs -n1 -r $DOCKER stop
+    $DOCKER ps -a | tail -n+2 | grep -E 'pontarius-service(-[[:alnum:]]*)*\b' | awk '{print $1}' | xargs -n1 -r $DOCKER rm
+    stop_prosody
+    echo "stopped"
+}
+
+cleanup() {
+    stop
+    $DOCKER images | grep '<none>' | awk '{print $3}' | xargs -r -n1 $DOCKER rmi || true
+    echo clean
+}
+
+build() {
+    $DOCKER build -t pontarius-service .
+    cleanup
+}
+
+
+run() {
+    build
+    start_prosody
+    $DOCKER run --rm -it --name pontarius-service --link pontarius-prosody:test.pontarius.org pontarius-service $@
+    stop
+}
+
+run_test() {
+    build
+    start_prosody
+    $DOCKER run -d --name pontarius-service-passive --link pontarius-prosody:test.pontarius.org pontarius-service \
+            testclient passive
+    $DOCKER run --rm -it --name pontarius-service-active --link pontarius-prosody:test.pontarius.org pontarius-service \
+            testclient active
+    stop
+}
+
+
+case $1 in
+    "clean")
+        cleanup
+        ;;
+    "run")
+        shift
+        run $@
+        ;;
+    "stop")
+        stop
+        ;;
+    "build")
+        build
+        ;;
+    "test")
+        run_test
+        ;;
+    *)
+        echo "Usage: docker-build [clean|run|stop|build]"
+        ;;
+esac

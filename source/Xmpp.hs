@@ -39,6 +39,7 @@ import qualified Data.Text.Encoding as Text
 import           Data.UUID (UUID)
 import qualified Network.TLS as TLS
 import qualified Network.Xmpp as Xmpp
+import           Network.Xmpp.Lens hiding (view)
 import qualified Network.Xmpp.E2E as E2E
 import qualified Network.Xmpp.IM as Xmpp
 import           Persist
@@ -389,17 +390,50 @@ connector d st = do
                     sess' <- Xmpp.dupSession sess
                     (_, threads) <- runWriterT $ do
                         runHandler $ do
-                            st <- Xmpp.waitForPresence ((== Xmpp.Subscribe )
+                            pr <- Xmpp.waitForPresence ((== Xmpp.Subscribe )
                                                         . Xmpp.presenceType )
-                                                          sess'
-                            let Just fr = Xmpp.presenceTo st
-                            emitSignal subscriptionRequestSignal fr con
+                                                       sess'
+                            runPSM st $ handleSubscriptionRequest sess' con pr
+
                     return (sess, e2eCtx, threads)
 
   where
     -- Exponential back-off, we double the retry delay each time up to a total
     -- of 5 minutes and ensure that it's not below 5 seconds
     nextDelay d = max 5 (min (2*d) (5*60))
+
+-- | Handle a subscription request.
+--
+-- Checks the roster for a matching entry, if it exists and we are subscribed to
+-- it or a subscription is pending, it automatically approves the
+-- request. Otherwise emits a SubscriptionRequestSignal
+handleSubscriptionRequest :: MonadIO m =>
+                             Xmpp.Session
+                          -> DBusConnection
+                          -> Xmpp.Presence
+                          -> m ()
+handleSubscriptionRequest sess con st
+    | Just fr <- Xmpp.presenceFrom st = do
+          roster <- liftIO $ Xmpp.getRoster sess
+          let approve =
+                  case roster ^. itemsL . at fr of
+                   Nothing -> False
+                   Just item ->
+                       or [ item ^. riSubscriptionL `elem` [Xmpp.To, Xmpp.Both]
+                          , item ^. riAskL
+                          ]
+          case approve of
+           True -> do
+               res <- liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribed fr) sess
+               case res of
+                Left error ->
+                    logError $ "Failed to accept subscription request from "
+                               ++ show fr ++ "; error = " ++ show error
+                Right r -> return ()
+           False -> liftIO $ emitSignal subscriptionRequestSignal fr con
+    | otherwise = logError "Presence subscription without from field"
+
+
 
 enableXmpp :: (MonadReader PSState m, MonadIO m, Functor m) => m ()
 enableXmpp = do
@@ -455,8 +489,6 @@ disableAccount = do
     st <- ask
     liftIO $ runPSM st updateState
 
-
-getSession :: PSM (MethodHandlerT IO) Xmpp.Session
 getSession = do
     xc <- view psXmppCon
     c <- liftIO $ readTVarIO xc
@@ -511,7 +543,6 @@ subscribe peer = do
     sess <- getSession
     liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribe peer) sess
 
-acceptSubscription :: Xmpp.Jid -> PSM (MethodHandlerT IO) (Either Xmpp.XmppFailure ())
 acceptSubscription peer = do
     sess <- getSession
     liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribed peer) sess
@@ -522,7 +553,12 @@ addPeer peer = do
     -- pre-approval
     sess <- getSession
     _ <- liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribe peer) sess
-    _ <- liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribed peer) sess
+    features <- liftIO $ Xmpp.getFeatures sess
+    case Xmpp.streamFeaturesPreApproval features  of
+     True -> do
+         _ <- liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribed peer) sess
+         return ()
+     _ -> return ()
     return ()
 
 removePeer :: Xmpp.Jid -> PSM (MethodHandlerT IO) ()

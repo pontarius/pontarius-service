@@ -36,7 +36,7 @@ updateState = do
         getCredentials `orIs` (Just CredentialsUnset)
         lift getSigningKey  >>= \case
             Nothing -> liftIO getIdentities >>= \case
-                [] -> do createGpgKey
+                [] -> do -- createGpgKey
                          is Nothing
                 _ -> is (Just IdentitiesAvailable)
             Just key -> do
@@ -75,7 +75,9 @@ synchronousCreateGpgKey = do
     sem <- view psGpgCreateKeySempahore
     tid <- liftIO myThreadId
     liftIO (atomically $ tryPutTMVar sem tid) >>= \case
-        False -> lift . methodError $
+        False ->do
+
+            lift . methodError $
                  MsgError "org.pontarius.Error.createIdentity"
                           (Just $ "Identity creation is already running")
                           []

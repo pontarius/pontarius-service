@@ -1,0 +1,7 @@
+#!/bin/sh
+
+DBUS_SESSION_BUS_ADDRESS=$(/bin/dbus-daemon --session --fork --print-address)
+
+echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS"
+
+echo "$DBUS_SESSION_BUS_ADDRESS" > /etc/container_environment/DBUS_SESSION_BUS_ADDRESS

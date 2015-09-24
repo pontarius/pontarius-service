@@ -64,6 +64,7 @@ data PSState = PSState { _psDB :: ConnectionPool
                        , _psAccountState :: TVar AccountState
                        , _psGpgCreateKeySempahore :: TMVar ThreadId
                        , _psDBusConnection :: TMVar DBusConnection
+                       , _psSubscriptionRequests :: !(TVar (Set Xmpp.Jid))
                        }
 
 newtype PSM m a = PSM {unPSM :: ReaderT PSState m a}
@@ -74,6 +75,21 @@ deriving instance Monad m => MonadReader PSState (PSM m)
 
 makeLenses ''PSProperties
 makeLenses ''PSState
+
+addSubscriptionRequest :: MonadIO m => Xmpp.Jid -> PSM m ()
+addSubscriptionRequest fr = do
+    srs <- PSM $ view psSubscriptionRequests
+    liftIO . atomically $ modifyTVar srs $ Set.insert fr
+
+removeSubscriptionRequest :: MonadIO m => Xmpp.Jid -> PSM m ()
+removeSubscriptionRequest fr = do
+    srs <- PSM $ view psSubscriptionRequests
+    liftIO . atomically $ modifyTVar srs $ Set.delete fr
+
+getSubscriptionRequests :: MonadIO m => PSM m (Set Xmpp.Jid)
+getSubscriptionRequests = do
+    srs <- PSM $ view psSubscriptionRequests
+    liftIO . atomically $ readTVar srs
 
 runPSM :: PSState -> PSM m a -> m a
 runPSM st (PSM m) = runReaderT m st

@@ -33,15 +33,16 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
 import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import           Data.UUID (UUID)
 import qualified Network.TLS as TLS
 import qualified Network.Xmpp as Xmpp
-import           Network.Xmpp.Lens hiding (view)
 import qualified Network.Xmpp.E2E as E2E
 import qualified Network.Xmpp.IM as Xmpp
+import           Network.Xmpp.Lens hiding (view)
 import           Persist
 import           System.Random
 
@@ -103,7 +104,6 @@ makeE2ECallbacks kid = do
                        \p pk sig txt ->
                         fmap E2E.VerifyInfo <$>
                           verifySignature st p (E2E.pubKeyData pk) sig txt
-
                     }
 
 handleStateChange :: PSState
@@ -126,7 +126,7 @@ handleStateChange st con j oldState newState =
 
 ourJid :: PSState -> IO (Maybe Xmpp.Jid)
 ourJid st = runMaybeT $ do
-    (xmppCon, ctx) <- (liftIO . atomically . readTVar $ view psXmppCon st)
+    (xmppCon, _ctx) <- (liftIO . atomically . readTVar $ view psXmppCon st)
                       >>= \case
          XmppConnected c ctx _ -> return (c, ctx)
          _ -> do
@@ -407,22 +407,19 @@ connector d st = do
 -- Checks the roster for a matching entry, if it exists and we are subscribed to
 -- it or a subscription is pending, it automatically approves the
 -- request. Otherwise emits a SubscriptionRequestSignal
-handleSubscriptionRequest :: MonadIO m =>
-                             Xmpp.Session
-                          -> DBusConnection
-                          -> Xmpp.Presence
-                          -> m ()
 handleSubscriptionRequest sess con st
     | Just fr <- Xmpp.presenceFrom st = do
           roster <- liftIO $ Xmpp.getRoster sess
-          let approve =
+          -- Automatically approve the request if we have a (pending)
+          -- subscription to it
+          let autoApprove =
                   case roster ^. itemsL . at fr of
                    Nothing -> False
                    Just item ->
                        or [ item ^. riSubscriptionL `elem` [Xmpp.To, Xmpp.Both]
                           , item ^. riAskL
                           ]
-          case approve of
+          case autoApprove of
            True -> do
                res <- liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribed fr) sess
                case res of
@@ -430,10 +427,10 @@ handleSubscriptionRequest sess con st
                     logError $ "Failed to accept subscription request from "
                                ++ show fr ++ "; error = " ++ show error
                 Right r -> return ()
-           False -> liftIO $ emitSignal subscriptionRequestSignal fr con
+           False -> do
+               addSubscriptionRequest fr
+               liftIO $ emitSignal subscriptionRequestSignal fr con
     | otherwise = logError "Presence subscription without from field"
-
-
 
 enableXmpp :: (MonadReader PSState m, MonadIO m, Functor m) => m ()
 enableXmpp = do
@@ -543,9 +540,15 @@ subscribe peer = do
     sess <- getSession
     liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribe peer) sess
 
+acceptSubscription :: MonadIO m => Xmpp.Jid -> PSM (MethodHandlerT m) ()
 acceptSubscription peer = do
     sess <- getSession
-    liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribed peer) sess
+    res <- liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribed peer) sess
+    case res of
+     Right () -> removeSubscriptionRequest peer
+     Left e -> xmppError $ "Could not accept subscription: " <> showText e
+  where
+    showText = Text.pack . show
 
 addPeer :: Xmpp.Jid -> PSM (MethodHandlerT IO) ()
 addPeer peer = do
@@ -556,10 +559,14 @@ addPeer peer = do
     features <- liftIO $ Xmpp.getFeatures sess
     case Xmpp.streamFeaturesPreApproval features  of
      True -> do
-         _ <- liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribed peer) sess
+         _ <- acceptSubscription peer
          return ()
-     _ -> return ()
-    return ()
+     False -> do
+         srs <- getSubscriptionRequests
+         case peer `Set.member` srs of
+          False -> return ()
+          True -> acceptSubscription peer
+    removeSubscriptionRequest peer
 
 removePeer :: Xmpp.Jid -> PSM (MethodHandlerT IO) ()
 removePeer peer = do

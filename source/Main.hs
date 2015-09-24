@@ -15,6 +15,8 @@ import           DBus
 import           DBus.Introspect (introspect)
 import           DBus.Property
 import           Data.Monoid
+import           Data.Set (Set)
+import qualified Data.Set as Set
 import qualified Data.Text.IO as Text
 import           Database.Persist.Sqlite
 import           System.Environment
@@ -41,6 +43,7 @@ main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
     accState <- newTVarIO AccountDisabled
     sem <- newEmptyTMVarIO
     conRef <- newEmptyTMVarIO
+    subReqsRef <- newTVarIO Set.empty
     let psState = PSState { _psDB = pool
                           , _psXmppCon = xmppConRef
                           , _psProps = propertiesRef
@@ -48,6 +51,7 @@ main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
                           , _psAccountState = accState
                           , _psGpgCreateKeySempahore = sem
                           , _psDBusConnection = conRef
+                          , _psSubscriptionRequests = subReqsRef
                           }
         getStatus = readTVar pState
         getEnabled = (== AccountEnabled) <$> readTVar accState

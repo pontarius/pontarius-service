@@ -30,66 +30,15 @@ import qualified Data.Text as Text
 import           Interface
 import           System.Environment
 import           System.Exit
+import           System.FilePath
 import           System.IO
+import           System.Log.Handler.Simple
 import           System.Log.Logger
-import           System.Timeout
 
 import           PontariusService.Types
 
 import           Interface
-
-newtype JID = JID { unJID :: Text}
-              deriving (Eq, Ord, Show)
-
-instance Representable JID where
-    type RepType JID = RepType Text
-    toRep = toRep . unJID
-    fromRep = fmap JID . fromRep
-
-data ClientGlobals =
-    ClientState { clientGlobalsConnection         :: !DBusConnection
-                , clientGlobalsPropState          :: !(TVar PontariusState)
-                , clientGlobalsPropAccountEnabled :: !(TVar Bool)
-                , clientGlobalsPropPeers          :: !(TVar [(Text, Bool)])
-                , clientGlobalsCredentials        :: !(Text, Text)
-                , clientGlobalsThem               :: !Text
-                }
-
-makeLensesWith camelCaseFields ''ClientGlobals
-
-newtype Client a = Client { unClient :: ReaderT ClientGlobals IO a}
-                     deriving (Monad, MonadIO, Applicative, Functor
-                              , Ex.MonadThrow, Ex.MonadCatch)
-
-
-data SomeShowTVar where
-    SSTV :: Show a => TVar a -> SomeShowTVar
-
-dumpState = do
-    debug "Dumping State"
-    globals <- Client ask
-    mapM (\(name, getter) -> do
-               SSTV tv <- return $ globals ^. getter
-               v <- liftIO . atomically $ readTVar tv
-               debug $ " - " ++ name ++ ": " ++ show v)
-        [ ("pontarius state", propState . shw)
-        , ("account enabled", propAccountEnabled .shw)
-        , ("peers", propPeers . shw)
-        ]
-  where shw = to SSTV
-
-withTimeout :: String -> Client a -> Client a
-withTimeout message (Client f) = do
-    st <- Client ask
-    res <- liftIO $ timeout (5*10^6) (runReaderT f st)
-    case res of
-     Nothing -> do
-         debug $ "Timeout: " ++ message
-         dumpState
-         liftIO $ exitFailure
-     Just r -> return r
--- withTimeout = id
-
+import           Test
 
 getConnection :: Client DBusConnection
 getConnection = Client $ view connection
@@ -156,7 +105,6 @@ waitProp message pr p = do
 
 
 waitForServer con = do
-    liftIO $ putStrLn "Waiting for pontarius-service"
     r <- DBus.call initialize peer () [] con :: IO (Either MethodError PontariusState)
     case r of
      Left e -> do
@@ -164,54 +112,64 @@ waitForServer con = do
          waitForServer con
      Right _ -> return ()
 
-debug :: String -> Client ()
-debug = liftIO . putStrLn
+logDir = "/logs/client"
+
+makeLogger component loggerNames filename = do
+    hndlr <- fileHandler (logDir  </> filename) DEBUG
+    forM_ loggerNames $ \loggerName ->
+        updateGlobalLogger loggerName $ setLevel DEBUG . setHandlers [hndlr]
+
 
 runClient :: Client b -> IO b
-runClient (Client f) = do
+runClient f = do
+    ln
+    yellow "Running Tests" >> ln
+    putStrLn "-------------------"
     args <- liftIO getArgs
-    (credentials, them) <- case args of
-        ["active"] -> return (credentialsA, fst credentialsB)
-        ["passive"] -> return (credentialsB, fst credentialsA)
-        [] -> liftIO $ do
-            hPutStrLn stderr "Usage: testclient [active|passive]"
-            exitFailure
-    updateGlobalLogger "DBus.Reactive" $ setLevel DEBUG
-    updateGlobalLogger "DBus" $ setLevel DEBUG
-    con <- connectBus Session ignore ignore
-    putStrLn "dbus connected"
-    waitForServer con
+    let (credentials, them) =
+            case component of
+             Active -> (credentialsA, fst credentialsB)
+             Passive -> (credentialsB, fst credentialsA)
+    updateGlobalLogger rootLoggerName $ removeHandler . removeHandler
+    let mkLogger = makeLogger component
+    mkLogger ["DBus.Reactive", "DBus"] "dbus"
+    mkLogger ["Pontarius.Xmpp"] "pontarius-xmpp"
+    con <- try "Connecting to DBus session" $
+              connectBus Session ignore ignore
+    try "Waiting for server" $ waitForServer con
     statusVar <- propertyToTVar statusP con
     peersVar <- propertyToTVar peersP con
     enabledVar <- propertyToTVar accountEnabledP con
-    runReaderT f $ ClientState { clientGlobalsConnection = con
-                               , clientGlobalsPropState = statusVar
-                               , clientGlobalsPropAccountEnabled = enabledVar
-                               , clientGlobalsPropPeers = peersVar
-                               , clientGlobalsCredentials = credentials
-                               , clientGlobalsThem = them
-                               }
+    let st = ClientState
+               { clientGlobalsConnection = con
+               , clientGlobalsPropState = statusVar
+               , clientGlobalsPropAccountEnabled = enabledVar
+               , clientGlobalsPropPeers = peersVar
+               , clientGlobalsCredentials = credentials
+               , clientGlobalsThem = them
+               }
+    runReaderT (unClient $ dumpStateOnException f) st
 
 setup :: Client ()
 setup = do
     creds <- getXMPPCredentials
     () <- call setCredentials creds
-    debug "credentials set"
-    idents <- call getIdentities () :: Client [Text]
-    case idents of
-     [] -> do
-         _ <- call createIdentity () :: Client ByteString
-         return ()
-     (ident:_) -> call setIdentity ident
-    debug "identity set"
-    setProp accountEnabledP True
-    debug "Waiting for XMPP connection to complete"
-    waitProp "authentication" propState (== Authenticated)
+
+    idents <- try "Setting credentials" $
+                call getIdentities () :: Client [Text]
+    try "Creating identity" $
+        case idents of
+         [] -> do
+             _ <- call createIdentity () :: Client ByteString
+             return ()
+         (ident:_) -> call setIdentity ident
+    try "Enabling account" $ setProp accountEnabledP True
+    try "Waiting for XMPP connection to complete" $
+      waitProp "authentication" propState (== Authenticated)
     them <- getPeer
-    debug "Adding peer"
-    call addPeer them :: Client ()
-    debug "Waiting for peer to be added"
-    waitProp "peers" propPeers ((==1) . length)
+    try "Adding peer" $ call addPeer them :: Client ()
+    try "Waiting for peer to be added"
+      $ waitProp "peers" propPeers ((==1) . length)
     return ()
 
 

@@ -19,12 +19,16 @@ module Types
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Lens
+import           Control.Monad.Catch
 import           Control.Monad.Reader
 import           DBus
 import           DBus.Signal
 import           DBus.Types
 import           Data.Set (Set)
 import qualified Data.Set as Set
+import           Data.Text (Text)
+import           Data.UUID (UUID)
+import qualified Data.UUID as UUID
 import           Database.Persist.Sqlite
 import qualified Network.Xmpp as Xmpp
 import qualified Network.Xmpp.E2E as Xmpp
@@ -68,7 +72,9 @@ data PSState = PSState { _psDB :: ConnectionPool
                        }
 
 newtype PSM m a = PSM {unPSM :: ReaderT PSState m a}
-                deriving (Monad, Applicative, Functor, MonadIO, MonadTrans)
+                deriving (Monad, Applicative, Functor, MonadIO, MonadTrans
+                         , MonadThrow, MonadCatch
+                         )
 
 deriving instance Monad m => MonadReader PSState (PSM m)
 
@@ -98,3 +104,12 @@ getDBusCon :: MonadIO m => PSM m (DBusConnection)
 getDBusCon = do
     st <- PSM ask
     liftIO . atomically $ readTMVar $ st ^. psDBusConnection
+
+instance Representable (Maybe UUID) where
+  type RepType (Maybe UUID) = RepType Text
+  toRep Nothing = toRep ("" :: Text)
+  toRep (Just x) = toRep x
+  fromRep v = case fromRep v of
+               Nothing -> Nothing
+               Just "" -> Just Nothing
+               Just txt -> Just <$> UUID.fromText txt

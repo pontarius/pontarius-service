@@ -13,8 +13,9 @@ PrivIdent
 -- Store zero or more "public" identities for contacts. These are public DSA
 -- keys. We keep track of whether the fingerprints have been verified.
 PubIdent
-    keyBackend Text
     keyID KeyID
+    Primary keyID
+    keyBackend Text
     verified UTCTime Maybe
     revoked UTCTime Maybe
     received UTCTime
@@ -66,23 +67,29 @@ HostCredentials
     password Text
     changed UTCTime Desc
 
+-- a Contact is a collection of Identities (i.e. public keys) and Peers (e.g. JIDs)
 Contact
     uniqueID UUID Eq
+    Primary uniqueID
     UniqueContact uniqueID
     name Text
+    UniqueContactName name
     deriving Show Eq Ord
-
--- Peers (JIDs) that should not be shown as unlinked
-IgnoredPeer
-    jid Jid
-    UniqueIgnoredPeer jid
 
 ContactJid
     contact ContactId
+    Primary contact
     jid Jid
     UniqueContactJid jid
 
 ContactIdentity
     contact ContactId
     identity KeyID
+    Primary identity
+    Foreign PubIdent fkPubIdent identity
     UniqueContactIdentity identity
+
+-- Peers (JIDs) that should not be shown as unlinked
+IgnoredPeer
+    jid Jid
+    UniqueIgnoredPeer jid

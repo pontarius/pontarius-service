@@ -22,6 +22,8 @@ import           Database.Persist.Sqlite
 import           System.Environment
 import           System.Exit
 import           System.Log.Logger
+import           System.Log.Handler.Simple
+import           System.FilePath
 
 import           Basic
 import           DBusInterface
@@ -30,12 +32,22 @@ import           Transactions
 import           Types
 import           Xmpp
 
+logDir = "/logs"
+
+mkLogger loggerNames filename = do
+    hndlr <- fileHandler (logDir </> filename ++ ".log") DEBUG
+    forM_ loggerNames $ \loggerName ->
+        updateGlobalLogger loggerName $ setLevel DEBUG . setHandlers [hndlr]
+
+
 main :: IO ()
-main = runStderrLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
-    updateGlobalLogger "Pontarius.Xmpp" $ setLevel DEBUG
+main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
+    updateGlobalLogger rootLoggerName $ removeHandler . removeHandler
+    mkLogger ["Pontarius.Xmpp"] "pontarius-xmpp"
+    mkLogger ["DBus"] "dbus"
     updateGlobalLogger "DBus" $ setLevel DEBUG
     logDebug "migrating"
-    runResourceT $ flip runSqlPool pool $ runMigration migrateAll
+    runResourceT $ flip runSqlPool pool $ runMigrationSilent migrateAll
     logDebug "setting up state"
     xmppConRef <- newTVarIO XmppNoConnection
     propertiesRef <- newEmptyTMVarIO

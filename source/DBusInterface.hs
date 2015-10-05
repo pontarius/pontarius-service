@@ -284,6 +284,14 @@ unignorePeerMethod st =
     ("jid" :> Done)
     Done
 
+linkPeersContactsMethod :: PSState -> Method
+linkPeersContactsMethod st =
+    DBus.Method
+    (DBus.repMethod $ runPSM st . addContactsJids)
+    "linkPeers"
+    ("contacts and jids" :> Done)
+    Done
+
 ----------------------------------------------------
 -- Objects
 ----------------------------------------------------
@@ -305,6 +313,7 @@ xmppInterface st = Interface
                 , initializeMethod st
                 , initiateChallengeMethod st
                 , linkIdentityMethod st
+                , linkPeersContactsMethod st
                 , markKeyVerifiedMethod st
                 , newContactMethod st
                 , removeChallengeMethod st

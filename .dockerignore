@@ -1,3 +1,5 @@
 dist
-.git/
-.cabal-sandbox/
+.git
+.cabal-sandbox
+logs
+logs.0

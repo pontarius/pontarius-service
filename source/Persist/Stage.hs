@@ -4,13 +4,17 @@
 module Persist.Stage where
 
 import           Control.Lens
+import qualified Data.Aeson as Aeson
 import           Data.Char
 import qualified Data.List as List
 import           Data.Maybe
+import           Data.Monoid
 import           Data.UUID
+import qualified Data.UUID as UUID
 import           Database.Persist.Sql
 import           Language.Haskell.TH
 import           Network.Xmpp
+import           Web.PathPieces
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -33,6 +37,21 @@ instance PersistField Jid where
         case jidFromText $ Text.decodeUtf8 v of
             Nothing -> Left $ Text.concat ["Invalid JID: ", Text.pack (show v)]
             Just j -> Right j
+
+instance Aeson.ToJSON UUID where
+    toJSON uuid = Aeson.toJSON $ UUID.toText uuid
+
+instance Aeson.FromJSON UUID where
+    parseJSON v = do
+        txt <- Aeson.parseJSON v
+        case UUID.fromText txt of
+         Nothing -> fail $ "can't parse UUID" <> (Text.unpack txt)
+         Just uuid -> return uuid
+
+
+instance PathPiece UUID where
+    fromPathPiece = UUID.fromString . Text.unpack
+    toPathPiece = Text.pack . UUID.toString
 
 instance PersistFieldSql Jid where
     sqlType _ = SqlString

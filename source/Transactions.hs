@@ -58,7 +58,6 @@ updateState = do
     case eNewState of
         -- | Writing to the TVar will automatically trigger a signal if necessary
         Left (Just newState) -> do
-            liftIO $ print newState
             setState newState
         -- | No state-changing condition was found, we keep the old state
         _ -> return ()
@@ -192,6 +191,7 @@ isKeyVerifiedM st keyID = runPSM st $ do
 
 addContactJidM :: PSState -> UUID -> Xmpp.Jid -> IO ()
 addContactJidM st uuid jid = runPSM st . void $ addContactJid uuid jid
+
 
 removeContactJidM :: PSState -> Xmpp.Jid -> IO ()
 removeContactJidM st = runPSM st . removeContactJid

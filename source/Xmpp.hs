@@ -407,6 +407,11 @@ connector d st = do
 -- Checks the roster for a matching entry, if it exists and we are subscribed to
 -- it or a subscription is pending, it automatically approves the
 -- request. Otherwise emits a SubscriptionRequestSignal
+handleSubscriptionRequest :: MonadIO m =>
+                             Xmpp.Session
+                          -> DBusConnection
+                          -> Xmpp.Presence
+                          -> PSM m ()
 handleSubscriptionRequest sess con st
     | Just fr <- Xmpp.presenceFrom st = do
           roster <- liftIO $ Xmpp.getRoster sess
@@ -486,6 +491,8 @@ disableAccount = do
     st <- ask
     liftIO $ runPSM st updateState
 
+getSession :: (Monad m, MonadIO m) =>
+              PSM (MethodHandlerT m) Xmpp.Session
 getSession = do
     xc <- view psXmppCon
     c <- liftIO $ readTVarIO xc

@@ -68,6 +68,8 @@ COPY docker/pontarius-service.runit /etc/service/pontarius-service/run
 
 COPY docker/start.sh /start.sh
 
+VOLUME /logs
+
 ENTRYPOINT ["/start.sh"]
 
 CMD ["testclient", "passive"]

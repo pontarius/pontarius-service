@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Persist
   ( module Persist
@@ -16,6 +17,7 @@ import           Control.Monad.Except
 import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Resource
+import           DBus (MsgError(..))
 import qualified Data.Foldable as Foldable
 import           Data.Text (Text)
 import qualified Data.Text as Text
@@ -23,11 +25,35 @@ import           Data.Time.Clock
 import           Data.UUID (UUID)
 import qualified Data.UUID.V4 as UUID
 import           Database.Persist
+import           Database.Persist.Class ()
 import           Database.Persist.Sqlite
 import qualified Network.Xmpp as Xmpp
 import           Persist.Schema
 
+
 import           Types
+
+getByNotFound :: (Show a, MonadThrow m, MonadIO m, PersistEntity val,
+                  PersistEntityBackend val ~ SqlBackend) =>
+                 Text
+              -> a
+              -> Unique val
+              -> PSM m (Entity val)
+getByNotFound desc item unique = do
+    res <- runDB $ getBy unique
+    case res of
+     Nothing ->
+         throwM $
+           MsgError{ errorName =  "org.pontarius.Error"
+                   , errorText = Just $ mconcat
+                       [ "Could not find "
+                       , desc
+                       , " : "
+                       , Text.pack $ show item
+                       ]
+                   , errorBody =   []
+                   }
+     Just r -> return r
 
 
 setCredentials :: MonadIO m => Text -> Xmpp.Username -> Xmpp.Password -> PSM m ()
@@ -73,7 +99,14 @@ getSigningKey = runDB $ do
 addPubIdent :: MonadIO m => KeyID -> PSM m ()
 addPubIdent keyID = do
     now <- liftIO $ getCurrentTime
-    _ <- runDB $ insertUnique (PubIdent "gpg" keyID Nothing Nothing now (Just now))
+    _ <- runDB $ insertUnique
+                    PubIdent{ pubIdentKeyBackend = "gpg"
+                            , pubIdentKeyID = keyID
+                            , pubIdentVerified = Nothing
+                            , pubIdentRevoked = Nothing
+                            , pubIdentReceived = now
+                            , pubIdentImported = (Just now)
+                            }
     return ()
 
 
@@ -297,3 +330,19 @@ unignorePeer :: Xmpp.Jid -> PSM IO ()
 unignorePeer jid = runDB $ do
     deleteWhere [IgnoredPeerJid ==. jid]
     return ()
+
+unlinkJid :: MonadIO m => Xmpp.Jid -> ReaderT SqlBackend m ()
+unlinkJid jid = do
+    deleteWhere [ContactJidJid ==. jid]
+
+addContactsJids :: [(Xmpp.Jid, Maybe UUID)] -> PSM IO ()
+addContactsJids contactJids = do
+    forM_ contactJids $ \(jid, mbContact) -> do
+        case mbContact of
+         Nothing -> ignorePeer jid
+         Just cnt -> do
+             contact <- getByNotFound "contact" cnt (UniqueContact cnt)
+             void . runDB . insert $
+                           ContactJid { contactJidContact = entityKey contact
+                                      , contactJidJid = jid
+                                      }

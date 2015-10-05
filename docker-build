@@ -58,20 +58,51 @@ build() {
     cleanup
 }
 
+rotate_logs() {
+    if [[ -d logs.0 ]]
+    then
+       rm -r logs.0
+    fi
+    if [[ -d logs ]]
+    then
+        mv logs logs.0
+    fi
+    mkdir -p logs/active/client
+    mkdir -p logs/passive/client
+}
 
 run() {
     build
     start_prosody
-    $DOCKER run --rm -it --name pontarius-service --link pontarius-prosody:test.pontarius.org pontarius-service $@
+    rotate_logs
+    $DOCKER run \
+            --rm \
+            -it \
+            --name pontarius-service \
+            -v $PWD/logs/active:/logs \
+            --link pontarius-prosody:test.pontarius.org \
+            pontarius-service \
+            $@
     stop
 }
 
 run_test() {
     build
     start_prosody
-    $DOCKER run -d --name pontarius-service-passive --link pontarius-prosody:test.pontarius.org pontarius-service \
+    rotate_logs
+    $DOCKER run -d \
+            --name pontarius-service-passive \
+            -v $PWD/logs/passive:/logs \
+            --link pontarius-prosody:test.pontarius.org \
+            pontarius-service \
             testclient passive
-    $DOCKER run --rm -it --name pontarius-service-active --link pontarius-prosody:test.pontarius.org pontarius-service \
+    $DOCKER run \
+            --rm \
+            -it \
+            --name pontarius-service-active \
+            -v $PWD/logs/active:/logs \
+            --link pontarius-prosody:test.pontarius.org \
+            pontarius-service \
             testclient active
     stop
 }

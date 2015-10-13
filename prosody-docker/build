@@ -1,0 +1,6 @@
+#!/bin/sh
+
+set -e
+
+docker build -t prosody-pontarius .
+docker images | grep '<none>' | awk '{print $3}' | xargs -n1 docker rmi

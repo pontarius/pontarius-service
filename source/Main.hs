@@ -14,6 +14,7 @@ import           Control.Monad.Trans.Resource
 import           DBus
 import           DBus.Introspect (introspect)
 import           DBus.Property
+import           Data.Maybe (isJust)
 import           Data.Monoid
 import           Data.Set (Set)
 import qualified Data.Set as Set
@@ -21,9 +22,11 @@ import qualified Data.Text.IO as Text
 import           Database.Persist.Sqlite
 import           System.Environment
 import           System.Exit
-import           System.Log.Logger
-import           System.Log.Handler.Simple
 import           System.FilePath
+import           System.Log.Formatter
+import           System.Log.Handler hiding (setLevel)
+import           System.Log.Handler.Simple
+import           System.Log.Logger
 
 import           Basic
 import           DBusInterface
@@ -36,17 +39,31 @@ logDir = "/logs"
 
 mkLogger loggerNames filename = do
     hndlr <- fileHandler (logDir </> filename ++ ".log") DEBUG
+    let fmt = simpleLogFormatter "$time;$prio;$msg"
+        hnd = setFormatter hndlr fmt
     forM_ loggerNames $ \loggerName ->
-        updateGlobalLogger loggerName $ setLevel DEBUG . setHandlers [hndlr]
+        updateGlobalLogger loggerName $ setLevel DEBUG . setHandlers [hnd]
+
+globalLogger :: IO ()
+globalLogger = do
+    hnd' <- fileHandler (logDir </> "service.log") DEBUG
+    let fmt = simpleLogFormatter "$time;$loggername;$prio;$msg"
+        hnd = setFormatter hnd' fmt
+    updateGlobalLogger rootLoggerName $ addHandler hnd . removeHandler
 
 
 main :: IO ()
 main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
-    updateGlobalLogger rootLoggerName $ removeHandler . removeHandler
-    mkLogger ["Pontarius.Xmpp"] "pontarius-xmpp"
-    mkLogger ["DBus"] "dbus"
-    updateGlobalLogger "DBus" $ setLevel DEBUG
-    logDebug "migrating"
+    args <- getArgs
+    let writeInterface = case args of
+                          ["--write-interface", filename] -> Just filename
+                          _ -> Nothing
+    unless (isJust writeInterface) $ do
+      mapM_ (\l -> updateGlobalLogger l $ setLevel DEBUG) $
+          [ "Pontarius.Xmpp", "DBus" ]
+      globalLogger
+      mkLogger ["Pontarius.Xmpp"] "xmpp"
+      logDebug "migrating"
     runResourceT $ flip runSqlPool pool $ runMigrationSilent migrateAll
     logDebug "setting up state"
     xmppConRef <- newTVarIO XmppNoConnection
@@ -106,12 +123,11 @@ main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
                                 <> property usernameProp
                                 <> property peersProp
                                 <> property availableEntitiesProp
-    args <- getArgs
-    case args of
-       ["--write-interface", filename] -> do
-           Text.writeFile filename $ introspect "/" False ro
-           exitSuccess
-       _ -> return ()
+    case writeInterface of
+     Just filename -> do
+         Text.writeFile filename $ introspect "/" False ro
+         exitSuccess
+     Nothing -> return ()
     logDebug "connecting to dbus"
     con <- makeServer DBus.Session ro
     logDebug "setting dbus session"

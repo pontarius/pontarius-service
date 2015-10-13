@@ -67,8 +67,8 @@ rotate_logs() {
     then
         mv logs logs.0
     fi
-    mkdir -p logs/active/client
-    mkdir -p logs/passive/client
+    mkdir -p logs/active
+    mkdir -p logs/passive
 }
 
 run() {

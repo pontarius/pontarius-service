@@ -14,8 +14,6 @@
 module PontariusService.Types where
 
 import           Control.Applicative
-import           Control.Concurrent
-import           Control.Concurrent.STM
 import           Control.Lens
 import           Control.Monad.Reader
 import           DBus
@@ -37,6 +35,28 @@ import qualified Network.Xmpp as Xmpp
 
 type SSID = ByteString
 
+data BatchLink = BatchLinkIgnore
+               | BatchLinkExisting UUID
+               | BatchLinkNewContact Text
+
+instance Representable BatchLink where
+  type RepType BatchLink = 'TypeStruct '[ 'DBusSimpleType 'TypeByte
+                                        , 'DBusSimpleType 'TypeString]
+  toRep BatchLinkIgnore = DBVStruct (StructCons
+                                    (DBVByte 0) (StructSingleton (DBVString "")))
+  toRep (BatchLinkExisting uuid)
+    = DBVStruct (StructCons (DBVByte 1) (StructSingleton (toRep uuid)))
+  toRep (BatchLinkNewContact name)
+    = DBVStruct (StructCons (DBVByte 2) (StructSingleton (toRep name)))
+  fromRep
+    (DBVStruct (StructCons (DBVByte 0) (StructSingleton _)))
+    = Just BatchLinkIgnore
+  fromRep (DBVStruct (StructCons (DBVByte 1) (StructSingleton uuid)))
+    = BatchLinkExisting <$> (fromRep uuid)
+  fromRep (DBVStruct (StructCons (DBVByte 2) (StructSingleton (DBVString name))))
+    = Just $ BatchLinkNewContact name
+
+
 data PontariusState = CredentialsUnset
                     | IdentityNotFound
                     | IdentitiesAvailable
@@ -56,12 +76,12 @@ data PeerStatus = Unavailable
                   deriving (Show, Eq)
 
 instance Representable UTCTime where
-    type RepType UTCTime = 'DBusSimpleType TypeUInt32
+    type RepType UTCTime = 'DBusSimpleType 'TypeUInt32
     toRep = DBVUInt32 . round . utcTimeToPOSIXSeconds
     fromRep (DBVUInt32 x) = Just . posixSecondsToUTCTime $ fromIntegral x
 
 instance DBus.Representable Xmpp.Jid where
-    type RepType Xmpp.Jid = 'DBusSimpleType TypeString
+    type RepType Xmpp.Jid = 'DBusSimpleType 'TypeString
     toRep = DBus.DBVString . Xmpp.jidToText
     fromRep (DBus.DBVString s) = Xmpp.jidFromText s
 
@@ -144,7 +164,6 @@ makeRepresentable ''AkeEvent
 makeRepresentable ''ChallengeEvent
 makeRepresentable ''RevocationEvent
 makeRepresentable ''PeerStatus
-
 
 instance DBus.Representable UUID where
     type RepType UUID = RepType Text

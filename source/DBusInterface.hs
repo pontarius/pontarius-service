@@ -13,7 +13,7 @@ module DBusInterface
 
 import           Control.Applicative
 import           Control.Concurrent.STM
-import           Control.Lens
+import           Control.Lens hiding ((:>))
 import           DBus as DBus
 import           DBus.Types
 import           Data.ByteString (ByteString)
@@ -287,9 +287,9 @@ unignorePeerMethod st =
 linkPeersContactsMethod :: PSState -> Method
 linkPeersContactsMethod st =
     DBus.Method
-    (DBus.repMethod $ runPSM st . addContactsJids)
+    (DBus.repMethod $ runPSM st . batchLink)
     "linkPeers"
-    ("contacts and jids" :> Done)
+    ("jids and " :> Done)
     Done
 
 ----------------------------------------------------

@@ -4,6 +4,7 @@
 module Persist.Stage where
 
 import           Control.Lens
+import           Control.Monad
 import qualified Data.Aeson as Aeson
 import           Data.Char
 import qualified Data.List as List
@@ -55,6 +56,21 @@ instance PathPiece UUID where
 
 instance PersistFieldSql Jid where
     sqlType _ = SqlString
+
+instance PathPiece Jid where
+    fromPathPiece = jidFromText
+    toPathPiece = jidToText
+
+instance Aeson.ToJSON Jid where
+    toJSON = Aeson.toJSON . jidToText
+
+instance Aeson.FromJSON Jid where
+    parseJSON v = do
+        str <- Aeson.parseJSON v
+        case jidFromText str of
+         Nothing -> mzero
+         Just jid -> return jid
+
 
 pLensRules :: [Char] -> LensRules
 pLensRules pr = lensRules & lensField

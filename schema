@@ -3,11 +3,12 @@
 PrivIdent
     keyBackend Text -- e.g. "GPG" "openssl"
     keyID KeyID
+    Primary keyID
+    UniquePrivIdentKey keyID
     revoked UTCTime Maybe
     created UTCTime Maybe
     imported UTCTime Maybe
     isDefault Checkmark nullable
-    UniquePrivIdentKey keyID
     UniqueDefaultKey isDefault !force
 
 -- Store zero or more "public" identities for contacts. These are public DSA
@@ -15,12 +16,12 @@ PrivIdent
 PubIdent
     keyID KeyID
     Primary keyID
+    UniquePubIdentKey keyID
     keyBackend Text
     verified UTCTime Maybe
     revoked UTCTime Maybe
     received UTCTime
     imported UTCTime Maybe
-    UniquePubIdentKey keyID
 
 -- Store details about received revocations of public identities.
 Revocation
@@ -38,20 +39,22 @@ RevocationSignal
 -- an identity in the session.
 Session
     sessionID SessionID
+    UniqueSession sessionID
     privIdentID KeyID Maybe
     pubIdentID KeyID Maybe
     localJid Jid
     remoteJid Jid
     initiated UTCTime Asc
     concluded UTCTime Maybe
-    UniqueSession sessionID
 
 -- Challenges. A `Nothing' question means a query for a shared password. A
 -- `Nothing' result means that a timeout occured.
 Challenge
     uniqueID UUID
+    Primary uniqueID
+    UniqueChallenge uniqueID
     peer Jid
-    sessionID SessionID
+    sessionID SessionId
     keyID KeyID
     outgoing Bool
     started UTCTime Asc Desc
@@ -59,7 +62,6 @@ Challenge
     question Text Maybe
     result Bool Maybe
     hidden Bool Eq
-    UniqueChallenge uniqueID
 
 HostCredentials
     hostname Text -- hostname to connect to
@@ -77,19 +79,22 @@ Contact
     deriving Show Eq Ord
 
 ContactJid
-    contact ContactId
-    Primary contact
     jid Jid
+    Primary jid
     UniqueContactJid jid
+    contact UUID
+    Foreign Contact fkContact contact
 
 ContactIdentity
-    contact ContactId
     identity KeyID
     Primary identity
     Foreign PubIdent fkPubIdent identity
     UniqueContactIdentity identity
+    contact UUID
+    Foreign Contact fkContact contact
 
 -- Peers (JIDs) that should not be shown as unlinked
 IgnoredPeer
     jid Jid
+    Primary jid
     UniqueIgnoredPeer jid

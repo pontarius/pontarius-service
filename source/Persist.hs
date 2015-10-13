@@ -30,7 +30,6 @@ import           Database.Persist.Sqlite
 import qualified Network.Xmpp as Xmpp
 import           Persist.Schema
 
-
 import           Types
 
 getByNotFound :: (Show a, MonadThrow m, MonadIO m, PersistEntity val,
@@ -125,7 +124,8 @@ getState = do
     st <- view psState
     liftIO . atomically $ readTVar st
 
-addChallenge :: MonadIO m => Xmpp.Jid
+addChallenge :: (MonadIO m, MonadThrow m) =>
+                Xmpp.Jid
              -> SessionID
              -> KeyID
              -> Bool
@@ -134,7 +134,8 @@ addChallenge :: MonadIO m => Xmpp.Jid
 addChallenge peer sid kid isOut mbQuestion = do
     now <- liftIO $ getCurrentTime
     challengeID <- liftIO $ UUID.nextRandom
-    _ <- runDB . insert $ Challenge challengeID peer sid kid isOut now
+    Entity sessionK _ <- getByNotFound "session by id" sid (UniqueSession sid)
+    _ <- runDB . insert $ Challenge challengeID peer sessionK kid isOut now
                                     Nothing mbQuestion Nothing False
     return ()
 
@@ -207,14 +208,13 @@ renameContact :: MonadIO m => UUID -> Text -> PSM m ()
 renameContact contactID newName = runDB $ do
     updateWhere [ContactUniqueID ==. contactID] [ContactName =. newName]
 
-addContactJid :: MonadIO m => UUID -> Xmpp.Jid -> (PSM m) (Either Text ())
-addContactJid contactID jid = runDB $ runExceptT $ do
-    mbContact <- lift $ getBy (UniqueContact contactID)
-    case mbContact of
-        Nothing -> throwError ("Contact not found" :: Text)
-        Just c -> void . lift $ upsert (ContactJid (entityKey c) jid) []
-    return ()
 
+-- Link peer
+addContactJid :: MonadIO m => UUID -> Xmpp.Jid -> PSM m ()
+addContactJid contactID jid =
+    void . runDB $ upsert (ContactJid jid contactID) []
+
+-- unlink peer
 removeContactJid :: MonadIO m => Xmpp.Jid -> PSM m ()
 removeContactJid jid = runDB $ do
     deleteBy $ UniqueContactJid jid
@@ -222,12 +222,10 @@ removeContactJid jid = runDB $ do
 setContactIdentity :: MonadIO m =>
                       UUID
                    -> KeyID
-                   -> PSM m (Either Text (Entity ContactIdentity))
-setContactIdentity contactID ident = runDB $ runExceptT $  do
-    mbContact <- lift $ getBy (UniqueContact contactID)
-    case mbContact of
-        Nothing -> throwError ("Contact not found" :: Text)
-        Just c -> lift $ upsert (ContactIdentity (entityKey c) ident) []
+                   -> PSM m ()
+setContactIdentity contactID ident = do
+    _ <- runDB $ upsert (ContactIdentity ident contactID) []
+    return ()
 
 removeContactIdentity :: MonadIO m => KeyID -> PSM m ()
 removeContactIdentity id = runDB $ do
@@ -244,7 +242,9 @@ getIdentityContact keyID = runDB $ do
     mbContactId <- getBy (UniqueContactIdentity keyID)
     case mbContactId of
         Nothing -> return Nothing
-        Just ct -> get (contactIdentityContact $ entityVal ct)
+        Just ct -> do
+            e <- getBy (UniqueContact $ contactIdentityContact $ entityVal ct)
+            return $ entityVal <$> e
 
 getContacts :: MonadIO m => PSM m [Contact]
 getContacts = runDB $ do
@@ -257,9 +257,9 @@ getContactIds c = runDB $ do
      Nothing -> do
          $logWarn $ Text.pack $ "Contact " ++ show c ++ " does not exist"
          return []
-     Just contact -> do
+     Just _ -> do
          map (contactIdentityIdentity . entityVal)
-             <$> selectList [ContactIdentityContact ==. entityKey contact] []
+             <$> selectList [ContactIdentityContact ==. c] []
 
 getContactJids :: MonadIO m => UUID -> PSM m [Xmpp.Jid]
 getContactJids c = runDB $ do
@@ -268,9 +268,9 @@ getContactJids c = runDB $ do
      Nothing -> do
          $logWarn $ Text.pack $ "Contact " ++ show c ++ " does not exist"
          return []
-     Just contact -> do
+     Just _ -> do
          map (contactJidJid . entityVal)
-             <$> selectList [ContactJidContact ==. entityKey contact] []
+             <$> selectList [ContactJidContact ==. c] []
 
 deleteContact :: MonadIO m => UUID -> PSM m (Maybe [KeyID])
 deleteContact c = runDB $ do
@@ -279,10 +279,10 @@ deleteContact c = runDB $ do
      Nothing -> do
          $logWarn $ Text.pack $ "Contact " ++ show c ++ " does not exist"
          return Nothing
-     Just (Entity cKey _cVal) -> do
-         deleteWhere [ContactJidContact ==. cKey]
-         ids <- selectList [ContactIdentityContact ==. cKey] []
-         deleteWhere [ContactIdentityContact ==. cKey]
+     Just _ -> do
+         deleteWhere [ContactJidContact ==. c]
+         ids <- selectList [ContactIdentityContact ==. c] []
+         deleteWhere [ContactIdentityContact ==. c]
          deleteBy $ UniqueContact c
          return $ Just (contactIdentityIdentity . entityVal <$> ids)
 
@@ -335,14 +335,12 @@ unlinkJid :: MonadIO m => Xmpp.Jid -> ReaderT SqlBackend m ()
 unlinkJid jid = do
     deleteWhere [ContactJidJid ==. jid]
 
-addContactsJids :: [(Xmpp.Jid, Maybe UUID)] -> PSM IO ()
-addContactsJids contactJids = do
-    forM_ contactJids $ \(jid, mbContact) -> do
-        case mbContact of
-         Nothing -> ignorePeer jid
-         Just cnt -> do
-             contact <- getByNotFound "contact" cnt (UniqueContact cnt)
-             void . runDB . insert $
-                           ContactJid { contactJidContact = entityKey contact
-                                      , contactJidJid = jid
-                                      }
+batchLink :: [(Xmpp.Jid, BatchLink)] -> PSM IO ()
+batchLink ps = do
+    forM_ ps $ \(peer, action) ->
+        case action of
+          BatchLinkIgnore -> ignorePeer peer
+          BatchLinkExisting uuid -> addContactJid uuid peer
+          BatchLinkNewContact name -> do
+              contact <- newContact name
+              addContactJid contact peer

@@ -32,6 +32,8 @@ import           System.Environment
 import           System.Exit
 import           System.FilePath
 import           System.IO
+import           System.Log.Handler hiding (setLevel)
+import           System.Log.Formatter
 import           System.Log.Handler.Simple
 import           System.Log.Logger
 
@@ -56,8 +58,6 @@ credentialsA = ("testuser1@test.pontarius.org", "pwd1")
 
 credentialsB :: (Text, Text)
 credentialsB = ("testuser2@test.pontarius.org", "pwd2")
-
-
 
 throwME :: Ex.Exception e => IO (Either e b) -> IO b
 throwME f = do
@@ -103,7 +103,6 @@ waitProp message pr p = do
       unless (p v) retry
       return ()
 
-
 waitForServer con = do
     r <- DBus.call initialize peer () [] con :: IO (Either MethodError PontariusState)
     case r of
@@ -112,13 +111,15 @@ waitForServer con = do
          waitForServer con
      Right _ -> return ()
 
-logDir = "/logs/client"
+logDir :: String
+logDir = "/logs"
 
-makeLogger component loggerNames filename = do
-    hndlr <- fileHandler (logDir  </> filename) DEBUG
-    forM_ loggerNames $ \loggerName ->
-        updateGlobalLogger loggerName $ setLevel DEBUG . setHandlers [hndlr]
-
+globalLogger :: IO ()
+globalLogger = do
+    hnd' <- fileHandler (logDir </> "client.log") DEBUG
+    let fmt = simpleLogFormatter "$time;$loggername;$prio;$msg"
+        hnd = setFormatter hnd' fmt
+    updateGlobalLogger rootLoggerName $ addHandler hnd . removeHandler
 
 runClient :: Client b -> IO b
 runClient f = do
@@ -130,10 +131,9 @@ runClient f = do
             case component of
              Active -> (credentialsA, fst credentialsB)
              Passive -> (credentialsB, fst credentialsA)
-    updateGlobalLogger rootLoggerName $ removeHandler . removeHandler
-    let mkLogger = makeLogger component
-    mkLogger ["DBus.Reactive", "DBus"] "dbus"
-    mkLogger ["Pontarius.Xmpp"] "pontarius-xmpp"
+    mapM_ (\l -> updateGlobalLogger l $ setLevel DEBUG) $
+        [ "DBus.Reactive", "DBus" ]
+    globalLogger
     con <- try "Connecting to DBus session" $
               connectBus Session ignore ignore
     try "Waiting for server" $ waitForServer con
@@ -154,7 +154,8 @@ setup :: Client ()
 setup = do
     creds <- getXMPPCredentials
     () <- call setCredentials creds
-
+    onSignal subscriptionRequestSignal $ \peer ->
+        call addPeer (peer :: Text) -- @TODO: Handle subscription requests better
     idents <- try "Setting credentials" $
                 call getIdentities () :: Client [Text]
     try "Creating identity" $

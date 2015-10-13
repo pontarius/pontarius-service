@@ -130,6 +130,7 @@ main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
     logDebug "setting up properties"
     manageStmProperty statusProp getStatus con
     manageStmProperty enabledProp  getEnabled con
+    manageStmProperty peersProp (getPeersSTM psState) con
     logDebug "updating state"
     runPSM psState updateState
     logDebug "done updating state"

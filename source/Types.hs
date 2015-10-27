@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC  -fno-warn-incomplete-patterns #-}
 
 {-# LANGUAGE DataKinds #-}
@@ -18,6 +17,7 @@ module Types
 
 import           Control.Concurrent
 import           Control.Concurrent.STM
+import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Catch
 import           Control.Monad.Reader
@@ -35,8 +35,6 @@ import qualified Network.Xmpp.E2E as Xmpp
 
 import           PontariusService.Types
 
-
-
 class Signaling m where
     signals :: SomeSignal -> m ()
 
@@ -47,6 +45,15 @@ instance (MonadTrans t, MonadReader DBusConnection (t IO)) => Signaling (t IO) w
     signals s = do
         dbc <- ask
         lift $ emitSignal' s dbc
+
+class MonadMethodError m where
+    throwMethodError :: MsgError -> m a
+
+instance Monad m => MonadMethodError (MethodHandlerT m) where
+    throwMethodError = methodError
+
+instance MonadMethodError IO where
+    throwMethodError = Ex.throwIO
 
 data PSProperties = PSProperties{ _pspConnectionStatus :: Property (RepType Bool)}
 
@@ -61,14 +68,18 @@ instance Show XmppState where
     show XmppConnected{} = "Connected"
     show XmppNoConnection = "Disconnected"
 
-data PSState = PSState { _psDB :: ConnectionPool
-                       , _psXmppCon :: TVar XmppState
-                       , _psProps :: TMVar PSProperties
-                       , _psState :: TVar PontariusState
-                       , _psAccountState :: TVar AccountState
-                       , _psGpgCreateKeySempahore :: TMVar ThreadId
-                       , _psDBusConnection :: TMVar DBusConnection
-                       , _psSubscriptionRequests :: !(TVar (Set Xmpp.Jid))
+data PSCallbacks = PSCallbacks { _onStateChange :: !(XmppState -> PSM IO ())
+                               }
+
+data PSState = PSState { _psDB                    :: !ConnectionPool
+                       , _psXmppCon               :: !(TVar XmppState)
+                       , _psProps                 :: !(TMVar PSProperties)
+                       , _psState                 :: !(TVar PontariusState)
+                       , _psAccountState          :: !(TVar AccountState)
+                       , _psGpgCreateKeySempahore :: !(TMVar ThreadId)
+                       , _psDBusConnection        :: !(TMVar DBusConnection)
+                       , _psSubscriptionRequests  :: !(TVar (Set Xmpp.Jid))
+                       , _psCallbacks             :: !PSCallbacks
                        }
 
 newtype PSM m a = PSM {unPSM :: ReaderT PSState m a}
@@ -76,10 +87,17 @@ newtype PSM m a = PSM {unPSM :: ReaderT PSState m a}
                          , MonadThrow, MonadCatch
                          )
 
+io :: IO a -> IO a
+io = id
+
+methodHandler :: MethodHandlerT IO a -> MethodHandlerT IO a
+methodHandler = id
+
 deriving instance Monad m => MonadReader PSState (PSM m)
 
 
 makeLenses ''PSProperties
+makeLenses ''PSCallbacks
 makeLenses ''PSState
 
 addSubscriptionRequest :: MonadIO m => Xmpp.Jid -> PSM m ()

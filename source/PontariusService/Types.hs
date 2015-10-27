@@ -1,3 +1,4 @@
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC  -fno-warn-incomplete-patterns #-}
 
@@ -169,3 +170,19 @@ instance DBus.Representable UUID where
     type RepType UUID = RepType Text
     toRep = toRep . Text.pack . UUID.toString
     fromRep = UUID.fromString . Text.unpack <=< fromRep
+
+data AddPeerFailed =
+    AddPeerFailed { addPeerFailedPeer :: !Xmpp.Jid
+                  , addPeerFailedReason :: !Text
+                  } deriving (Show)
+
+makeRepresentable ''AddPeerFailed
+makeLensesWith camelCaseFields ''AddPeerFailed
+
+data RemovePeerFailed =
+    RemovePeerFailed { removePeerFailedPeer :: !Xmpp.Jid
+                     , removePeerFailedReason :: !Text
+                     } deriving (Show)
+
+makeRepresentable ''RemovePeerFailed
+makeLensesWith camelCaseFields ''RemovePeerFailed

@@ -50,8 +50,8 @@ getXMPPCredentials = Client $ view credentials
 
 getPeer = Client $ view them
 
-peer :: Text
-peer = "org.pontarius"
+dbusPeer :: Text
+dbusPeer = "org.pontarius"
 
 credentialsA :: (Text, Text)
 credentialsA = ("testuser1@test.pontarius.org", "pwd1")
@@ -73,7 +73,7 @@ call :: (Representable args, Representable ret) =>
      -> Client ret
 call desc args = do
     con <- getConnection
-    liftIO . throwME $ DBus.call desc peer args [] con
+    liftIO . throwME $ DBus.call desc dbusPeer args [] con
 
 onSignal :: Representable t =>
             SignalDescription (FlattenRepType (RepType t))
@@ -104,7 +104,8 @@ waitProp message pr p = do
       return ()
 
 waitForServer con = do
-    r <- DBus.call initialize peer () [] con :: IO (Either MethodError PontariusState)
+    r <- DBus.call initialize dbusPeer () [] con
+           :: IO (Either MethodError PontariusState)
     case r of
      Left e -> do
          liftIO $ threadDelay 100000 -- 100ms

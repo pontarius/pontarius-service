@@ -49,7 +49,7 @@ import           System.Random
 import           Basic
 import           Gpg
 import           Signals
-import           Transactions
+import           State
 import           Types
 
 data XmppConnectionUpdate = NowConnected
@@ -387,6 +387,7 @@ connector d st = do
                         -- amount of seconds
                     connector (nextDelay d) st
                 Right (sess, e2eCtx) -> do
+
                     sess' <- Xmpp.dupSession sess
                     (_, threads) <- runWriterT $ do
                         runHandler $ do
@@ -431,7 +432,7 @@ handleSubscriptionRequest sess con st
                 Left error ->
                     logError $ "Failed to accept subscription request from "
                                ++ show fr ++ "; error = " ++ show error
-                Right r -> return ()
+                Right _ -> return ()
            False -> do
                addSubscriptionRequest fr
                liftIO $ emitSignal subscriptionRequestSignal fr con
@@ -457,11 +458,16 @@ enableXmpp = do
                         writeTVar xc (XmppConnecting tid)
                         return True
                     _ -> return False
+
             case run of
                  False -> return ()
                  True -> do
+                     runPSM st . (st ^. psCallbacks . onStateChange)
+                         $ XmppConnecting tid
                      (sess, e2eCtx, threads) <- connector 0 st
-                     atomically . writeTVar xc $ XmppConnected sess e2eCtx threads
+                     let state2 = XmppConnected sess e2eCtx threads
+                     runPSM st . (st ^. psCallbacks . onStateChange) $ state2
+                     atomically . writeTVar xc $ state2
 
 enableAccount :: (Functor m, MonadIO m) => PSM (MethodHandlerT m) ()
 enableAccount = do
@@ -491,16 +497,30 @@ disableAccount = do
     st <- ask
     liftIO $ runPSM st updateState
 
-getSession :: (Monad m, MonadIO m) =>
-              PSM (MethodHandlerT m) Xmpp.Session
+getSession :: (Monad m, MonadIO m, MonadMethodError m) =>
+              PSM m Xmpp.Session
 getSession = do
     xc <- view psXmppCon
     c <- liftIO $ readTVarIO xc
     case c of
         XmppConnected sess _ _ -> return sess
-        _ -> lift $ methodError $ MsgError "org.pontarius.Error.Xmpp"
-                                      (Just $ "Not connected")
-                                      []
+        _ -> lift $ throwMethodError $ MsgError "org.pontarius.Error.Xmpp"
+                                          (Just $ "Not connected")
+                                          []
+
+checkSession :: (MonadIO m, MonadReader PSState m) => m (Maybe Xmpp.Session)
+checkSession = do
+    xc <- view psXmppCon
+    c <- liftIO $ readTVarIO xc
+    case c of
+     XmppConnected sess _ _ -> return $ Just sess
+     _ -> return Nothing
+
+connected :: (MonadIO m, MonadReader PSState m) => m Bool
+connected = do
+    s <- checkSession
+    return $ isJust s
+
 getE2EContext :: PSM (MethodHandlerT IO) E2E.E2EContext
 getE2EContext = do
     xc <- view psXmppCon
@@ -547,7 +567,7 @@ subscribe peer = do
     sess <- getSession
     liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribe peer) sess
 
-acceptSubscription :: MonadIO m => Xmpp.Jid -> PSM (MethodHandlerT m) ()
+acceptSubscription :: (MonadIO m, MonadMethodError m) => Xmpp.Jid -> PSM m ()
 acceptSubscription peer = do
     sess <- getSession
     res <- liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribed peer) sess
@@ -557,29 +577,50 @@ acceptSubscription peer = do
   where
     showText = Text.pack . show
 
-addPeer :: Xmpp.Jid -> PSM (MethodHandlerT IO) ()
+addPeer :: (MonadIO m, MonadMethodError m) =>
+           Xmpp.Jid
+        -> PSM m (Maybe ())
 addPeer peer = do
     -- TODO: be more precise here. We have to check that the server supports
     -- pre-approval
-    sess <- getSession
-    _ <- liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribe peer) sess
-    features <- liftIO $ Xmpp.getFeatures sess
-    case Xmpp.streamFeaturesPreApproval features  of
-     True -> do
-         _ <- acceptSubscription peer
-         return ()
-     False -> do
-         srs <- getSubscriptionRequests
-         case peer `Set.member` srs of
-          False -> return ()
-          True -> acceptSubscription peer
-    removeSubscriptionRequest peer
+    mbSess <- checkSession
+    case mbSess of
+     Nothing -> return Nothing
+     Just sess -> Just <$> do
+        _ <- liftIO $ Xmpp.sendPresence (Xmpp.presenceSubscribe peer) sess
+        features <- liftIO $ Xmpp.getFeatures sess
+        case Xmpp.streamFeaturesPreApproval features  of
+         True -> do
+             _ <- acceptSubscription peer
+             return ()
+         False -> do
+             srs <- getSubscriptionRequests
+             case peer `Set.member` srs of
+              False -> return ()
+              True -> acceptSubscription peer
+        removeSubscriptionRequest peer
 
-removePeer :: Xmpp.Jid -> PSM (MethodHandlerT IO) ()
+removePeer :: (MonadIO m, MonadMethodError m) =>
+              Xmpp.Jid
+           -> PSM m ()
 removePeer peer = do
     sess <- getSession
-    _ <- liftIO $ Xmpp.sendPresence (Xmpp.presenceUnsubscribed peer) sess
-    _ <- liftIO $ Xmpp.sendPresence (Xmpp.presenceUnsubscribe peer) sess
+    e1 <- liftIO $ Xmpp.sendPresence (Xmpp.presenceUnsubscribed peer) sess
+    case e1 of
+     Left e -> lift . throwMethodError $
+                 MsgError { errorName = "org.pontarius.Error.Xmpp.RemovePeer"
+                          , errorText = Just . Text.pack . show $ e
+                          , errorBody = []
+                          }
+     Right _ -> return ()
+    e2 <- liftIO $ Xmpp.sendPresence (Xmpp.presenceUnsubscribe peer) sess
+    case e2 of
+     Left e -> lift . throwMethodError $
+                 MsgError { errorName = "org.pontarius.Error.Xmpp.RemovePeer"
+                          , errorText = Just . Text.pack . show $ e
+                          , errorBody = []
+                          }
+     Right _ -> return ()
     return ()
 
 getAvailableXmppPeers :: PSM (MethodHandlerT IO) [Xmpp.Jid]
@@ -659,7 +700,7 @@ sessionsByJid st p = do
 
 getContactPeers :: UUID -> PSM IO (Map Xmpp.Jid (Map Xmpp.Jid KeyID))
 getContactPeers c = do
-    ids <- getContactJids c
+    ids <- Persist.getContactPeers c
     st <- ask
     ids' <- forM ids $ \id -> (\ss -> (id, ss))
                               <$> liftIO (sessionsByJid st id)
@@ -695,7 +736,7 @@ getContactsM :: PSM IO [(Contact, Bool)]
 getContactsM = do
     cs <- getContacts
     forM cs $ \c -> do
-        ps <- getContactPeers (contactUniqueID c)
+        ps <- Xmpp.getContactPeers (contactUniqueID c)
         return (c, mapAll Map.null ps)
   where
     mapAll p m = Map.null $ Map.filter p m

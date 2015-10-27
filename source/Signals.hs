@@ -89,3 +89,11 @@ contactRemovedSignal = pontariusSignal "contactRemoved"
 contactRenamedSignal :: SigD (UUID, Text)
 contactRenamedSignal = pontariusSignal "contactRenamed"
                        ("contact" :> "name" :> Done)
+
+addPeersFailedSignal :: SigD [AddPeerFailed] -- Jid and Reason
+addPeersFailedSignal = pontariusSignal "addPeersFailed"
+                      ("peers and reason" :> Done)
+
+removePeersFailedSignal :: SigD [RemovePeerFailed] -- Jid and Reason
+removePeersFailedSignal = pontariusSignal "removePeersFailed"
+                          ("peers and reasons" :> Done)

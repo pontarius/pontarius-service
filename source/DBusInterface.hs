@@ -166,7 +166,7 @@ getTrustStatusMethod st =
 addPeerMethod :: PSState -> Method
 addPeerMethod st =
     DBus.Method
-    (DBus.repMethod $ runPSM st . addPeer)
+    (DBus.repMethod $ methodHandler . runPSM st . addPeerM)
     "addPeer" ("jid" :> Done)
     Done
 
@@ -239,7 +239,7 @@ renameContactMethod st =
 
 getContactPeersMethod :: PSState -> Method
 getContactPeersMethod st =
-        DBus.Method (DBus.repMethod $ runPSM st . getContactPeers)
+        DBus.Method (DBus.repMethod $ runPSM st . Xmpp.getContactPeers)
         "getContactPeers"
         ("contact" :> Done)
         ("peers" :> Done)
@@ -254,7 +254,7 @@ getContactIdentitiesMethod st =
 getSessionByJIDMethod :: PSState -> Method
 getSessionByJIDMethod st =
     DBus.Method
-    (DBus.repMethod $ runPSM st . getJidSessionsM)
+    (DBus.repMethod $ io . runPSM st . getJidSessions)
     "getSessionsByJID"
     ("jid" :> Done)
     ("sessions" :> Done)
@@ -262,11 +262,10 @@ getSessionByJIDMethod st =
 getSessionByIdentityMethod :: PSState -> Method
 getSessionByIdentityMethod st =
     DBus.Method
-    (DBus.repMethod $ runPSM st . getJidSessionsM)
+    (DBus.repMethod $ io . runPSM st . getIdentitySessions)
     "getSessionsByIdentity"
-    ("jid" :> Done)
+    ("identity" :> Done)
     ("sessions" :> Done)
-
 
 ignorePeerMethod :: PSState -> Method
 ignorePeerMethod st =
@@ -342,6 +341,8 @@ xmppInterface st = Interface
                 , SSD receivedChallengeSignal
                 , SSD subscriptionRequestSignal
                 , SSD unlinkedIdentityAvailabilitySignal
+                , SSD addPeersFailedSignal
+                , SSD removePeersFailedSignal
                 ]
                 [ SomeProperty $ identityProp st
                 ]

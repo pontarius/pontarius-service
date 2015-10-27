@@ -31,6 +31,7 @@ import           System.Log.Logger
 import           Basic
 import           DBusInterface
 import           Persist
+import           State
 import           Transactions
 import           Types
 import           Xmpp
@@ -81,6 +82,8 @@ main = runNoLoggingT . withSqlitePool "config.db3" 3 $ \pool -> liftIO $ do
                           , _psGpgCreateKeySempahore = sem
                           , _psDBusConnection = conRef
                           , _psSubscriptionRequests = subReqsRef
+                          , _psCallbacks = PSCallbacks
+                                            { _onStateChange = onXmppStateChange }
                           }
         getStatus = readTVar pState
         getEnabled = (== AccountEnabled) <$> readTVar accState

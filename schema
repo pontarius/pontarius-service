@@ -78,10 +78,19 @@ Contact
     UniqueContactName name
     deriving Show Eq Ord
 
-ContactJid
+Peer
     jid Jid
     Primary jid
-    UniqueContactJid jid
+    UniquePeer jid
+    ignored Bool -- The peer should not be shown as unlinked
+    add Bool -- The peer should be added when we next connect to the server
+    remove Bool -- The peer should be removed on the next connect
+
+ContactPeer
+    peer Jid
+    Primary peer
+    UniqueContactPeer peer
+    Foreign Peer fkPeer peer
     contact UUID
     Foreign Contact fkContact contact
 
@@ -92,9 +101,3 @@ ContactIdentity
     UniqueContactIdentity identity
     contact UUID
     Foreign Contact fkContact contact
-
--- Peers (JIDs) that should not be shown as unlinked
-IgnoredPeer
-    jid Jid
-    Primary jid
-    UniqueIgnoredPeer jid

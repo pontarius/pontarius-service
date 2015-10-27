@@ -43,10 +43,10 @@ executable pontarius-service
                      , DBusInterface
                      , Persist
                      , Persist.Stage
+                     , Signals
+                     , State
                      , Types
                      , Xmpp
-                     , Signals
-
   build-depends: aeson >= 0.9
                , base >=4.6 && < 5
                , base64-bytestring >= 1.0.0.1

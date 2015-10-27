@@ -28,7 +28,8 @@ import           Database.Persist
 import           Database.Persist.Class ()
 import           Database.Persist.Sqlite
 import qualified Network.Xmpp as Xmpp
-import           Persist.Schema
+import           Persist.Schema hiding (peerIgnored)
+import qualified Persist.Schema as DB
 
 import           Types
 
@@ -210,14 +211,14 @@ renameContact contactID newName = runDB $ do
 
 
 -- Link peer
-addContactJid :: MonadIO m => UUID -> Xmpp.Jid -> PSM m ()
-addContactJid contactID jid =
-    void . runDB $ upsert (ContactJid jid contactID) []
+addContactPeer :: MonadIO m => UUID -> Xmpp.Jid -> PSM m ()
+addContactPeer contactID jid =
+    void . runDB $ upsert (ContactPeer jid contactID) []
 
 -- unlink peer
-removeContactJid :: MonadIO m => Xmpp.Jid -> PSM m ()
-removeContactJid jid = runDB $ do
-    deleteBy $ UniqueContactJid jid
+removeContactPeer :: MonadIO m => Xmpp.Jid -> PSM m ()
+removeContactPeer jid = runDB $ do
+    deleteBy $ UniqueContactPeer jid
 
 setContactIdentity :: MonadIO m =>
                       UUID
@@ -261,16 +262,16 @@ getContactIds c = runDB $ do
          map (contactIdentityIdentity . entityVal)
              <$> selectList [ContactIdentityContact ==. c] []
 
-getContactJids :: MonadIO m => UUID -> PSM m [Xmpp.Jid]
-getContactJids c = runDB $ do
+getContactPeers :: MonadIO m => UUID -> PSM m [Xmpp.Jid]
+getContactPeers c = runDB $ do
     mbContact <- getBy $ UniqueContact c
     case mbContact of
      Nothing -> do
          $logWarn $ Text.pack $ "Contact " ++ show c ++ " does not exist"
          return []
      Just _ -> do
-         map (contactJidJid . entityVal)
-             <$> selectList [ContactJidContact ==. c] []
+         map (contactPeerPeer . entityVal)
+             <$> selectList [ContactPeerContact ==. c] []
 
 deleteContact :: MonadIO m => UUID -> PSM m (Maybe [KeyID])
 deleteContact c = runDB $ do
@@ -280,7 +281,7 @@ deleteContact c = runDB $ do
          $logWarn $ Text.pack $ "Contact " ++ show c ++ " does not exist"
          return Nothing
      Just _ -> do
-         deleteWhere [ContactJidContact ==. c]
+         deleteWhere [ContactPeerContact ==. c]
          ids <- selectList [ContactIdentityContact ==. c] []
          deleteWhere [ContactIdentityContact ==. c]
          deleteBy $ UniqueContact c
@@ -316,31 +317,56 @@ getJidSessions jid = liftM (map entityVal) $
 
 peerIgnored :: MonadIO m => Xmpp.Jid -> PSM m Bool
 peerIgnored jid = runDB $ do
-    mbP <- getBy (UniqueIgnoredPeer jid)
+    mbP <- getBy (UniquePeer jid)
     return $ case mbP of
               Nothing -> False
-              Just _ -> True
+              Just (Entity _ p) -> DB.peerIgnored p
 
 ignorePeer :: Xmpp.Jid -> PSM IO ()
 ignorePeer jid = runDB $ do
-    _ <- upsert (IgnoredPeer jid) []
+    _ <- upsert (Peer jid True False False) [PeerIgnored =. True]
     return ()
 
 unignorePeer :: Xmpp.Jid -> PSM IO ()
 unignorePeer jid = runDB $ do
-    deleteWhere [IgnoredPeerJid ==. jid]
+    updateWhere [DB.PeerJid ==. jid] [DB.PeerIgnored =. False]
     return ()
 
 unlinkJid :: MonadIO m => Xmpp.Jid -> ReaderT SqlBackend m ()
 unlinkJid jid = do
-    deleteWhere [ContactJidJid ==. jid]
+    deleteWhere [ContactPeerPeer ==. jid]
 
 batchLink :: [(Xmpp.Jid, BatchLink)] -> PSM IO ()
 batchLink ps = do
     forM_ ps $ \(peer, action) ->
         case action of
           BatchLinkIgnore -> ignorePeer peer
-          BatchLinkExisting uuid -> addContactJid uuid peer
+          BatchLinkExisting uuid -> addContactPeer uuid peer
           BatchLinkNewContact name -> do
               contact <- newContact name
-              addContactJid contact peer
+              addContactPeer contact peer
+
+getPeer :: MonadIO m => Xmpp.Jid -> PSM m (Maybe Peer)
+getPeer jid = do
+    res <- runDB $ getBy (UniquePeer jid)
+    return $ entityVal <$> res
+
+addPeer :: MonadIO m => Xmpp.Jid -> Bool -> PSM m ()
+addPeer jid add = do
+    _ <- runDB $ upsert (DB.Peer{ DB.peerJid = jid
+                                , DB.peerIgnored = False
+                                , DB.peerAdd = add
+                                , DB.peerRemove = False
+                                })
+         [ DB.PeerIgnored =. False
+         , DB.PeerAdd =. add
+         ]
+    return ()
+
+getAddPeers :: MonadIO m => PSM m [Peer]
+getAddPeers = do
+    runDB $ fmap entityVal <$> selectList [DB.PeerAdd ==. True] []
+
+getRemovePeers :: MonadIO m => PSM m [Peer]
+getRemovePeers = do
+    runDB $ fmap entityVal <$> selectList [DB.PeerRemove ==. True] []

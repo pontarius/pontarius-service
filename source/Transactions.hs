@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 module Transactions where
@@ -5,6 +6,7 @@ module Transactions where
 import           Control.Concurrent
 import           Control.Concurrent.STM
 import           Control.Lens
+import qualified Control.Monad.Catch as Ex
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Either
 import           DBus
@@ -22,53 +24,14 @@ import qualified Network.Xmpp as Xmpp
 
 import           Basic
 import           Gpg
-import           Persist
-import           Types
+import           Persist as DB
 import           Signals
-
--- | Update the current state when an identifiable condition is found.
-updateState :: MonadIO m => PSM m ()
-updateState = do
-    -- | If a condition that triggers a state transition is found we immediately
-    -- return it with left.
-    eNewState <- runEitherT $ do
-        liftIO . logDebug . show =<< lift getCredentials
-        getCredentials `orIs` (Just CredentialsUnset)
-        lift getSigningKey  >>= \case
-            Nothing -> liftIO getIdentities >>= \case
-                [] -> do -- createGpgKey
-                         is Nothing
-                _ -> is (Just IdentitiesAvailable)
-            Just key -> do
-                ids <- liftIO getIdentities
-                if privIdentKeyID key `elem` ids
-                   then return ()
-                   else is (Just IdentityNotFound)
-        mbCon <- liftIO . atomically . readTVar =<< view psXmppCon
-        case mbCon of
-            XmppNoConnection -> is (Just Disabled)
-            XmppConnecting _ -> is (Just Authenticating)
-            XmppConnected con _ _ -> do
-                sstate <- liftIO . atomically $ Xmpp.streamState con
-                case sstate of
-                    Xmpp.Plain -> is (Just Authenticating)
-                    Xmpp.Secured -> is Nothing
-                    Xmpp.Closed -> is (Just Authenticating)
-                    Xmpp.Finished -> is Nothing
-    case eNewState of
-        -- | Writing to the TVar will automatically trigger a signal if necessary
-        Left (Just newState) -> do
-            setState newState
-        -- | No state-changing condition was found, we keep the old state
-        _ -> return ()
-  where
-    orIs m st = lift m >>= \case
-        Just _ -> return ()
-        Nothing -> left st
-    is = left
+import           State
+import           Types
+import           Xmpp as Xmpp
 
 synchronousCreateGpgKey :: (MonadIO m, Functor m) =>
-                          PSM (MethodHandlerT m) BS.ByteString
+                           PSM (MethodHandlerT m) BS.ByteString
 synchronousCreateGpgKey = do
     liftIO $ logDebug "Creating new identity"
     sem <- view psGpgCreateKeySempahore
@@ -190,11 +153,11 @@ isKeyVerifiedM st keyID = runPSM st $ do
         Just Just{} -> return True
 
 addContactJidM :: PSState -> UUID -> Xmpp.Jid -> IO ()
-addContactJidM st uuid jid = runPSM st . void $ addContactJid uuid jid
+addContactJidM st uuid jid = runPSM st . void $ addContactPeer uuid jid
 
 
 removeContactJidM :: PSState -> Xmpp.Jid -> IO ()
-removeContactJidM st = runPSM st . removeContactJid
+removeContactJidM st = runPSM st . removeContactPeer
 
 getAllContacts :: MonadIO m => PSM m (Map.Map UUID (Text, Set.Set a))
 getAllContacts = do
@@ -205,7 +168,7 @@ getAllContacts = do
 
 removeContactM :: UUID -> PSM IO ()
 removeContactM c = do
-    con <- liftIO . atomically . readTMVar =<< view psDBusConnection
+    con <- getDBusCon
     mbIds <- deleteContact c
     case mbIds of
      Nothing -> return ()
@@ -215,13 +178,62 @@ removeContactM c = do
 
 renameContactM :: UUID -> Text -> PSM IO ()
 renameContactM c name = do
-    con <- liftIO . atomically . readTMVar =<< view psDBusConnection
+    con <- getDBusCon
     renameContact c name
     liftIO $ emitSignal contactRenamedSignal (c, name) con
     return ()
 
-getIdentitySessionsM :: KeyID -> PSM IO [Session]
-getIdentitySessionsM = getIdentitySessions
+addPeerM :: MonadIO m => Xmpp.Jid -> PSM (MethodHandlerT m) ()
+addPeerM jid = do
+    mbAdded <- Xmpp.addPeer jid
+    DB.addPeer jid (isNothing mbAdded)
+    return ()
 
-getJidSessionsM :: Xmpp.Jid -> PSM IO [Session]
-getJidSessionsM = getJidSessions
+
+addMarkedPeers :: (MonadIO m, Ex.MonadCatch m, MonadMethodError m) => PSM m ()
+addMarkedPeers = do
+    con <- getDBusCon
+    ps <- getAddPeers
+    errors <- fmap catMaybes . forM ps $ \p -> do
+        let peer = (DB.peerJid p)
+        res <- Ex.try $ Xmpp.addPeer peer
+        case res of
+         Right _ -> return Nothing
+         Left (e :: MsgError) ->
+             return . Just $ AddPeerFailed
+               { addPeerFailedPeer = peer
+               , addPeerFailedReason = fromMaybe "" $ errorText e
+               }
+    case errors of
+     [] -> return ()
+     (_:_) -> liftIO $ emitSignal addPeersFailedSignal errors con
+
+removeMarkedPeers :: (MonadIO m, Ex.MonadCatch m, MonadMethodError m) => PSM m ()
+removeMarkedPeers = do
+    con <- getDBusCon
+    ps <- getAddPeers
+    errors <- fmap catMaybes . forM ps $ \p -> do
+        let peer = (DB.peerJid p)
+        res <- Ex.try $ Xmpp.removePeer peer
+        case res of
+         Right _ -> return Nothing
+         Left (e :: MsgError) ->
+             return . Just $ AddPeerFailed
+               { addPeerFailedPeer = peer
+               , addPeerFailedReason = fromMaybe "" $ errorText e
+               }
+    case errors of
+     [] -> return ()
+     (_:_) -> liftIO $ emitSignal addPeersFailedSignal errors con
+
+handleRemoteRosterAvailable :: (MonadIO m, Ex.MonadCatch m, MonadMethodError m) =>
+                               PSM m ()
+handleRemoteRosterAvailable = do
+    addMarkedPeers
+    removeMarkedPeers
+
+onXmppStateChange :: (MonadIO m, Ex.MonadCatch m, MonadMethodError m) =>
+                     XmppState
+                  -> PSM m ()
+onXmppStateChange XmppConnected{} = handleRemoteRosterAvailable
+onXmppStateChange _ = return ()

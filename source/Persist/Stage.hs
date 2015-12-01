@@ -16,6 +16,7 @@ import           Database.Persist.Sql
 import           Language.Haskell.TH
 import           Network.Xmpp
 import           Web.PathPieces
+import           Web.HttpApiData
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -71,6 +72,23 @@ instance Aeson.FromJSON Jid where
          Nothing -> mzero
          Just jid -> return jid
 
+instance ToHttpApiData UUID where
+    toUrlPiece = toPathPiece
+
+instance FromHttpApiData UUID where
+    parseUrlPiece txt =
+        case fromPathPiece txt of
+         Nothing -> Left $ "Could not parse uuid " <> txt
+         Just uuid -> Right uuid
+
+instance ToHttpApiData Jid where
+    toUrlPiece = toPathPiece
+
+instance FromHttpApiData Jid where
+    parseUrlPiece txt =
+        case fromPathPiece txt of
+         Nothing -> Left $ "Could not parse jid " <> txt
+         Just jid -> Right jid
 
 pLensRules :: [Char] -> LensRules
 pLensRules pr = lensRules & lensField
